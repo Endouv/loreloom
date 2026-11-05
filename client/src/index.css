@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #0e1113;
+  --color-ink-900: #14181b;
+  --color-ink-850: #1a1f23;
+  --color-ink-800: #20262a;
+  --color-ink-750: #2a3136;
+  --color-ink-700: #38424a;
+  --color-ink-400: #8b9aa5;
+  --color-ink-300: #b2c0ca;
+  --color-ink-200: #d5dee5;
+  --color-loom-500: #c9a34f;
+  --color-loom-600: #b08a3d;
+  --font-editor: "Loreloom Serif", Georgia, serif;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--color-ink-950); color: var(--color-ink-200); }
+
+/* Editor typography */
+.cm-editor {
+  background: transparent !important;
+  font-family: var(--font-editor);
+  font-size: var(--editor-font-size, 19px);
+  line-height: var(--editor-line-height, 1.9);
+}
+.cm-editor.cm-focused { outline: none !important; }
+.cm-editor .cm-scroller { padding-block: 2rem; font-family: var(--font-editor) !important; }
+.cm-content { max-width: min(72ch, 100%); margin-inline: auto; padding-bottom: 40vh; caret-color: var(--color-loom-500); }
+.cm-line { padding: 0 1rem; }
+.cm-cursor { border-left-color: var(--color-loom-500) !important; }
+.cm-line:focus-within, .cm-focused .cm-line { color: var(--color-ink-200); }
+
+/* focus mode: dim all but the active line's paragraph */
+.cm-focus-dim .cm-line { opacity: 0.35; transition: opacity .35s ease; }
+.cm-focus-dim .cm-line:hover, .cm-focus-dim .cm-activeLine { opacity: 1; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #38424a; border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.prose-stream p { margin: 0.75em 0; }

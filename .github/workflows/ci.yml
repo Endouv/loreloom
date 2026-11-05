@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # Sanity: the built server boots with an empty environment (fresh clone
+      # story). AI endpoints intentionally fail here — no Ollama in CI — and
+      # the suite expects those deterministic failures.
+      - name: Boot the built server
+        run: |
+          node server/dist/index.js > server.log 2>&1 &
+          SERVER_PID=$!
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:4747/api/health; then ok=1; break; fi
+            sleep 0.5
+          done
+          kill "$SERVER_PID" 2>/dev/null || true
+          cat server.log
+          test "$ok" = "1"

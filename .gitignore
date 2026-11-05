@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+client-dist/
+server/dist/
+server/node_modules/
+
+# Data and backups
+server/data/
+server/data/backups/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Ollama models (optional - user-installed)
+# Users should not commit model weights; these are installed separately
+
+# Built artifacts
+client-dist/
+server/dist/
+
+# Runtime
+*.log
+tmp/
+# Tooling metadata (Freebuff Desktop project link)
+.freebuff/
+
+# Local build archive
+client-dist.zip
