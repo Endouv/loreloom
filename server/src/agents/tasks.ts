@@ -4,12 +4,11 @@
  * The coordinator classifies a request, picks the tier and calls one capability.
  */
 import { db } from "../db/database.js";
-import { asyncHandler } from "../util.js";
 import { chatOnce, chatStream, type ChatMessage } from "../ollama/client.js";
 import { routeModel, numCtxTokens } from "../ollama/routing.js";
 import { runQueued } from "../ollama/queue.js";
 import { assembleContext, novelTitle, withSystem, type AssembledContext } from "./context.js";
-import type { Router, Request, Response } from "express";
+import type { Request, Response } from "express";
 
 export const THINKING_HINT = "Do not explain yourself; return only the requested content.";
 
@@ -37,7 +36,7 @@ export function createAiDraft(novelId: number, chapterId: number | null, task: s
     const id = Number(info.lastInsertRowid);
     // keep only the newest 20 drafts per novel
     db.prepare(
-      `DELETE FROM ai_drafts WHERE novel_id = ? AND id NOT IN (SELECT id FROM ai_drafts WHERE novel_id = ? ORDER BY id DESC LIMIT 20)`
+      `DELETE FROM ai_drafts WHERE novel_id = ? AND id NOT IN (SELECT id FROM ai_drafts WHERE novel_id = ? ORDER BY id DESC LIMIT 20)`,
     ).run(novelId, novelId);
     return id;
   } catch {
@@ -45,9 +44,23 @@ export function createAiDraft(novelId: number, chapterId: number | null, task: s
   }
 }
 
-export function logActivity(novelId: number | null, task: string, model: string | null, tier: string | null, ms: number, ok: boolean, detail = "") {
+export function logActivity(
+  novelId: number | null,
+  task: string,
+  model: string | null,
+  tier: string | null,
+  ms: number,
+  ok: boolean,
+  detail = "",
+) {
   db.prepare("INSERT INTO agent_activity (novel_id, task, model, tier, latency_ms, ok, detail) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-    novelId, task, model, tier, ms, ok ? 1 : 0, detail.slice(0, 400)
+    novelId,
+    task,
+    model,
+    tier,
+    ms,
+    ok ? 1 : 0,
+    detail.slice(0, 400),
   );
 }
 
@@ -66,11 +79,14 @@ export async function resolveTierModel(tier: "main" | "light"): Promise<{ model:
 // ------------------------------ Modes --------------------------------------
 
 const WRITING_MODES: Record<string, string> = {
-  draft: "Turn the author's rough notes or brief into polished novel prose in the target language. Preserve their meaning, characters and striking details.",
+  draft:
+    "Turn the author's rough notes or brief into polished novel prose in the target language. Preserve their meaning, characters and striking details.",
   expand: "Expand the author's scene with richer prose and dialogue while keeping every existing fact and the scene's direction intact.",
-  rewrite: "Rewrite the supplied prose so it reads more naturally while preserving its meaning, voice choices and meaning. Keep roughly the same length unless asked otherwise.",
+  rewrite:
+    "Rewrite the supplied prose so it reads more naturally while preserving its meaning, voice choices and meaning. Keep roughly the same length unless asked otherwise.",
   transition: "Write a short, smooth narrative transition between the surrounding material. Fall naturally into the next scene.",
-  dialogue: "Improve or write natural, character-rooted dialogue. Keep speech unmistakably in each character's voice and reveal as much as the author's notes imply, nothing more.",
+  dialogue:
+    "Improve or write natural, character-rooted dialogue. Keep speech unmistakably in each character's voice and reveal as much as the author's notes imply, nothing more.",
   describe: "Write tense-appropriate description of the setting from the notes: concrete sensory detail, no purple padding.",
 };
 
@@ -79,7 +95,8 @@ export async function buildWritingPrompt(env: TaskEnv, mode: string, input: stri
   const system = `You are Loreloom's writing agent inside the author's novel workspace. ${WRITING_MODES[mode] ?? WRITING_MODES.draft}\n${THINKING_HINT}`;
   let chapterContext = "";
   if (env.chapterId) {
-    const ch = db.prepare("SELECT title, summary FROM chapters WHERE id = ?").get(env.chapterId) as { title: string; summary: string } | undefined;
+    const ch = db.prepare("SELECT title, summary FROM chapters WHERE id = ?").get(env.chapterId) as
+      { title: string; summary: string } | undefined;
     if (ch) chapterContext = `CURRENT CHAPTER: "${ch.title}"${ch.summary ? `. Summary so far: ${ch.summary}` : ""}\n`;
   }
   const user = `${chapterContext}Author's instructions: ${instructions || "(none)"}\n\nAuthor material:\n${input}\n\nReturn the prose only.`;
@@ -91,7 +108,15 @@ export async function streamTask(
   res: Response,
   taskName: string,
   tier: "main" | "light",
-  prompts: () => Promise<{ model: string; messages: ChatMessage[]; temperature?: number; numCtx?: number; novelId: number; chapterId?: number | null; preContext?: () => Promise<unknown> }>
+  prompts: () => Promise<{
+    model: string;
+    messages: ChatMessage[];
+    temperature?: number;
+    numCtx?: number;
+    novelId: number;
+    chapterId?: number | null;
+    preContext?: () => Promise<unknown>;
+  }>,
 ): Promise<void> {
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -160,16 +185,7 @@ export async function streamTask(
 
 // ------------------------------ Editor task --------------------------------
 
-export const EDIT_MODES = [
-  "grammar",
-  "vocabulary",
-  "dialogue",
-  "pacing",
-  "structure",
-  "description",
-  "repetition",
-  "tone",
-] as const;
+export const EDIT_MODES = ["grammar", "vocabulary", "dialogue", "pacing", "structure", "description", "repetition", "tone"] as const;
 export type EditMode = (typeof EDIT_MODES)[number];
 
 const EDIT_PROMPTS: Record<EditMode, string> = {
@@ -190,7 +206,11 @@ export interface EditorChange {
   note: string;
 }
 
-export async function runEditorTask(novelId: number, text: string, modes: EditMode[]): Promise<{ revised: string; changes: EditorChange[]; model: string }> {
+export async function runEditorTask(
+  novelId: number,
+  text: string,
+  modes: EditMode[],
+): Promise<{ revised: string; changes: EditorChange[]; model: string }> {
   const { model } = await resolveTierModel("main");
   const ctx = await assembleContext(novelId, text.slice(0, 500));
   const modeText = modes.map((m) => `- ${m}: ${EDIT_PROMPTS[m]}`).join("\n");
@@ -199,7 +219,7 @@ export async function runEditorTask(novelId: number, text: string, modes: EditMo
   const messages: ChatMessage[] = [...withSystem(ctx, system, novelTitle(novelId)), { role: "user", content: user }];
   return runQueued("heavy", async () => {
     const raw = await chatOnce({ model, messages, numCtx: numCtxTokens() ?? undefined });
-    return { ...(parseEditorJson(raw, text)), model };
+    return { ...parseEditorJson(raw, text), model };
   });
 }
 
@@ -217,23 +237,30 @@ export function parseEditorJson(raw: string, original = ""): { revised: string; 
     // "revised" text: applying it would overwrite the manuscript with the
     // model talking about the edit instead of performing it.
     throw Object.assign(
-      new Error("The model replied without usable edit data, so nothing was changed. Try again, or switch to a model that follows instructions more reliably."),
-      { status: 502 }
+      new Error(
+        "The model replied without usable edit data, so nothing was changed. Try again, or switch to a model that follows instructions more reliably.",
+      ),
+      { status: 502 },
     );
   }
 
   const changes = (Array.isArray(parsed.changes) ? parsed.changes : [])
-    .filter((c): c is EditorChange => !!c && typeof c === "object" && typeof (c as EditorChange).original === "string" && typeof (c as EditorChange).suggestion === "string")
+    .filter(
+      (c): c is EditorChange =>
+        !!c &&
+        typeof c === "object" &&
+        typeof (c as EditorChange).original === "string" &&
+        typeof (c as EditorChange).suggestion === "string",
+    )
     .slice(0, 100);
   let revised = typeof parsed.revised === "string" ? parsed.revised : "";
 
   // A clean no-op may omit "revised"; keep the original as the canonical text.
   if (!revised.trim() && !changes.length) revised = original;
   if (!revised.trim()) {
-    throw Object.assign(
-      new Error("The model returned no edited text, so nothing was changed. Try again, or switch models."),
-      { status: 502 }
-    );
+    throw Object.assign(new Error("The model returned no edited text, so nothing was changed. Try again, or switch models."), {
+      status: 502,
+    });
   }
 
   // Never let an unexplained rewrite through: without change entries the UI
@@ -241,7 +268,7 @@ export function parseEditorJson(raw: string, original = ""): { revised: string; 
   if (original && !changes.length && revised.trim() !== original.trim()) {
     throw Object.assign(
       new Error("The model rewrote the passage without listing any changes, so the result was discarded. Nothing was changed."),
-      { status: 502 }
+      { status: 502 },
     );
   }
 
@@ -252,17 +279,21 @@ export function parseEditorJson(raw: string, original = ""): { revised: string; 
 
 export async function summarizeChapter(chapterId: number): Promise<string> {
   const ch = db.prepare("SELECT novel_id, title, body FROM chapters WHERE id = ?").get(chapterId) as
-    | { novel_id: number; title: string; body: string }
-    | undefined;
+    { novel_id: number; title: string; body: string } | undefined;
   if (!ch) throw Object.assign(new Error("Chapter not found"), { status: 404 });
   const { model } = await resolveTierModel("light");
   const body = ch.body.trim().slice(0, 12000) || "(empty chapter)";
   const system = `Summarize this novel chapter for the author's notes in 3-6 sentences. Cover what happens, key character beats, and any worldbuilding rules revealed. ${THINKING_HINT}`;
-  return runQueued("light", () => chatOnce({
-    model,
-    messages: [{ role: "system", content: system }, { role: "user", content: `Chapter "${ch.title}":\n\n${body}` }],
-    temperature: 0.3,
-  })).then((summary) => {
+  return runQueued("light", () =>
+    chatOnce({
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: `Chapter "${ch.title}":\n\n${body}` },
+      ],
+      temperature: 0.3,
+    }),
+  ).then((summary) => {
     db.prepare("UPDATE chapters SET summary = ?, updated_at = datetime('now') WHERE id = ?").run(summary.trim(), chapterId);
     return summary.trim();
   });
@@ -277,9 +308,15 @@ export async function extractMemorySuggestions(novelId: number, text: string): P
     const raw = await chatOnce({ model, messages, temperature: 0.2 });
     try {
       const parsed = JSON.parse(stripFences(raw)) as { items?: unknown };
-      return Array.isArray(parsed.items) ? parsed.items.filter((i): i is string => typeof i === "string" && i.trim().length > 3).slice(0, 12) : [];
+      return Array.isArray(parsed.items)
+        ? parsed.items.filter((i): i is string => typeof i === "string" && i.trim().length > 3).slice(0, 12)
+        : [];
     } catch {
-      return raw.split(/\n+/).map((l) => l.replace(/^[-*\d.\s]+/, "").trim()).filter((l) => l.length > 8 && l.length < 220).slice(0, 12);
+      return raw
+        .split(/\n+/)
+        .map((l) => l.replace(/^[-*\d.\s]+/, "").trim())
+        .filter((l) => l.length > 8 && l.length < 220)
+        .slice(0, 12);
     }
   });
 }
@@ -297,13 +334,20 @@ export async function runContinuityCheck(novelId: number, chapterId: number | nu
   let targetText = "";
   let targetLabel = "";
   if (chapterId) {
-    const ch = db.prepare("SELECT title, body, notes FROM chapters WHERE id = ?").get(chapterId) as { title: string; body: string; notes: string } | undefined;
+    const ch = db.prepare("SELECT title, body, notes FROM chapters WHERE id = ?").get(chapterId) as
+      { title: string; body: string; notes: string } | undefined;
     if (!ch) throw Object.assign(new Error("Chapter not found"), { status: 404 });
     targetText = `${ch.title}\n\n${ch.body}\n\nNotes:\n${ch.notes}`;
     targetLabel = `chapter "${ch.title}"`;
   } else {
-    const chapters = db.prepare("SELECT title, body FROM chapters WHERE novel_id = ? ORDER BY position").all(novelId) as { title: string; body: string }[];
-    targetText = chapters.map((c) => `### ${c.title}\n${c.body}`).join("\n\n").slice(0, 24000);
+    const chapters = db.prepare("SELECT title, body FROM chapters WHERE novel_id = ? ORDER BY position").all(novelId) as {
+      title: string;
+      body: string;
+    }[];
+    targetText = chapters
+      .map((c) => `### ${c.title}\n${c.body}`)
+      .join("\n\n")
+      .slice(0, 24000);
     targetLabel = "the full manuscript (abridged when too long)";
   }
   const ctx = await assembleContext(novelId, "continuity contradictions story facts");
@@ -313,7 +357,7 @@ export async function runContinuityCheck(novelId: number, chapterId: number | nu
     .prepare(
       `SELECT c.name AS name, k.kind, k.text FROM character_knowledge k
        JOIN characters c ON c.id = k.character_id
-       WHERE k.novel_id = ? ORDER BY k.id DESC LIMIT 40`
+       WHERE k.novel_id = ? ORDER BY k.id DESC LIMIT 40`,
     )
     .all(novelId) as { name: string; kind: string; text: string }[];
   const knowledgeRecap = knowledge.length
@@ -324,7 +368,10 @@ export async function runContinuityCheck(novelId: number, chapterId: number | nu
   const system = `You are Loreloom's continuity checker for the author's novel. Compare the manuscript text against the canon provided. Report REAL inconsistencies only (contradictory character facts, timeline errors, impossible knowledge — a character knowing or acting on something listed as "unaware" or not yet discovered at that point, broken relationship states, world rule violations, terminology drift). Do not invent problems; if the text is consistent, return an empty list. Return ONLY JSON: {"issues":[{"type":string, "location":string (chapter + rough position), "evidence":string (the contradicting canon fact), "why":string, "options":[string (2-3 concrete fixes)]}]}. No markdown.`;
   const messages: ChatMessage[] = [
     ...withSystem(ctx, system, novelTitle(novelId)),
-    { role: "user", content: `CANON RECAP:\n${[...ctx.canon, ...ctx.provisional, ...ctx.characters, ...ctx.world].join("\n")}${knowledgeRecap}\n\nMANUSCRIPT TEXT (${targetLabel}):\n${targetText}` },
+    {
+      role: "user",
+      content: `CANON RECAP:\n${[...ctx.canon, ...ctx.provisional, ...ctx.characters, ...ctx.world].join("\n")}${knowledgeRecap}\n\nMANUSCRIPT TEXT (${targetLabel}):\n${targetText}`,
+    },
   ];
   return runQueued("heavy", async () => {
     const raw = await chatOnce({ model, messages, temperature: 0.2, numCtx: numCtxTokens() ?? undefined });

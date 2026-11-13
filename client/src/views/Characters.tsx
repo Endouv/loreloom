@@ -1,10 +1,20 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api, type Character, type CharacterGraph, type CharacterSuggestion } from "../api.js";
+import { api, errorMessage, type Character, type CharacterGraph, type CharacterSuggestion } from "../api.js";
 import { Button, Card, Empty, Input, Label, Modal, Spinner, Tag, TextArea, useAppState } from "../ui.js";
 
 interface FullCharacter extends Character {
   events: { id: number; description: string; chapterId: number | null }[];
-  links: { id: number; kind: string; notes: string; certainty?: string; chapterId?: number | null; fromCharacterId: number; toCharacterId: number; fromName: string; toName: string }[];
+  links: {
+    id: number;
+    kind: string;
+    notes: string;
+    certainty?: string;
+    chapterId?: number | null;
+    fromCharacterId: number;
+    toCharacterId: number;
+    fromName: string;
+    toName: string;
+  }[];
   appearances?: { id: number; kind: string; chapterId: number | null; chapterTitle: string; position: number }[];
   knowledge?: { id: number; kind: string; text: string; source: string; chapterId: number | null; chapterTitle: string | null }[];
 }
@@ -31,11 +41,20 @@ const SUGGESTION_LABELS: Record<string, string> = {
 function suggestionSummary(s: CharacterSuggestion): { title: string; detail: string } {
   const p = s.payload ?? {};
   if (s.kind === "new_character") return { title: `New character: ${p.newName ?? p.name ?? "?"}`, detail: s.reason };
-  if (s.kind === "update" && p.characterId && p.field) return { title: `${p.field} change`, detail: `Now: "${p.existing}" — proposed: "${p.proposed}". ${s.reason}` };
-  if (s.kind === "update" && p.item) return { title: `${p.item.kind} for ${p.unresolvedCharacter}`, detail: `${p.item.data?.text ?? p.item.data?.description ?? ""} — ${s.reason}` };
+  if (s.kind === "update" && p.characterId && p.field)
+    return { title: `${p.field} change`, detail: `Now: "${p.existing}" — proposed: "${p.proposed}". ${s.reason}` };
+  if (s.kind === "update" && p.item)
+    return {
+      title: `${p.item.kind} for ${p.unresolvedCharacter}`,
+      detail: `${p.item.data?.text ?? p.item.data?.description ?? ""} — ${s.reason}`,
+    };
   if (s.kind === "relationship") {
     const rel = p.rel ?? p;
-    if (p.existingKind) return { title: `Relationship change: ${p.fromName} ↔ ${p.toName}`, detail: `Was "${p.existingKind}", chapter suggests "${rel.kind}". ${rel.notes ?? ""}` };
+    if (p.existingKind)
+      return {
+        title: `Relationship change: ${p.fromName} ↔ ${p.toName}`,
+        detail: `Was "${p.existingKind}", chapter suggests "${rel.kind}". ${rel.notes ?? ""}`,
+      };
     return { title: `Relationship: ${p.fromName} ↔ ${p.toName}`, detail: `Interpreted as "${rel.kind}". ${rel.notes ?? ""} ${s.reason}` };
   }
   if (s.kind === "merge") return { title: `Merge check: "${p.newName}"`, detail: s.reason };
@@ -67,12 +86,18 @@ export const Characters: React.FC = () => {
 
   const load = useCallback(() => {
     if (!activeNovelId) return;
-    api.get<Character[]>(`/novels/${activeNovelId}/characters`).then(setCharacters).catch((e) => setError(e.message));
+    api
+      .get<Character[]>(`/novels/${activeNovelId}/characters`)
+      .then(setCharacters)
+      .catch((e) => setError(e.message));
   }, [activeNovelId]);
 
   const loadPending = useCallback(() => {
     if (!activeNovelId) return;
-    api.get<CharacterSuggestion[]>(`/novels/${activeNovelId}/characters/pending`).then(setPending).catch(() => setPending([]));
+    api
+      .get<CharacterSuggestion[]>(`/novels/${activeNovelId}/characters/pending`)
+      .then(setPending)
+      .catch(() => setPending([]));
   }, [activeNovelId]);
 
   const refreshAll = useCallback(() => {
@@ -109,7 +134,10 @@ export const Characters: React.FC = () => {
     if (!newName.trim()) return;
     const created = await api.post<Character>(`/novels/${activeNovelId}/characters`, {
       name: newName.trim(),
-      aliases: newAliases.split(",").map((a) => a.trim()).filter(Boolean),
+      aliases: newAliases
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean),
     });
     setNewName("");
     setNewAliases("");
@@ -134,8 +162,8 @@ export const Characters: React.FC = () => {
       await api.post(`/ai/analyze-novel-characters`, { novelId: activeNovelId, force: true });
       refreshAll();
       if (selected) open(selected);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errorMessage(e));
     } finally {
       setScanning(false);
     }
@@ -149,29 +177,50 @@ export const Characters: React.FC = () => {
 
   const merge = async () => {
     if (!detail || !mergeTarget) return;
-    if (!confirm(`Merge the selected character INTO ${detail.name}? The other profile's events, knowledge, appearances and aliases move here.`)) return;
+    if (
+      !confirm(
+        `Merge the selected character INTO ${detail.name}? The other profile's events, knowledge, appearances and aliases move here.`,
+      )
+    )
+      return;
     await api.post(`/novels/${activeNovelId}/characters/${detail.id}/merge`, { otherId: mergeTarget });
     setMergeTarget(null);
     open(detail.id);
     refreshAll();
   };
 
-  if (!activeNovelId) return <Empty title="No novel selected">Pick a project in <b>My Novels</b> first.</Empty>;
+  if (!activeNovelId)
+    return (
+      <Empty title="No novel selected">
+        Pick a project in <b>My Novels</b> first.
+      </Empty>
+    );
 
   return (
     <div className="max-w-6xl mx-auto p-8 flex gap-6 h-full min-h-0">
       <aside className="w-64 shrink-0 flex flex-col">
         <header className="flex items-center justify-between mb-3">
           <h1 className="font-serif text-xl">Cast</h1>
-          <Button variant="primary" onClick={() => setCreating(true)}>+</Button>
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            +
+          </Button>
         </header>
+        {error && <p className="mb-3 text-[11px] text-red-300 border border-red-900/60 rounded-md px-3 py-2">{error}</p>}
         {(pending?.length ?? 0) > 0 && (
-          <button onClick={() => document.getElementById("pending-review")?.scrollIntoView({ behavior: "smooth" })} className="mb-3 text-left text-[11px] rounded-md border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-amber-300">
+          <button
+            onClick={() => document.getElementById("pending-review")?.scrollIntoView({ behavior: "smooth" })}
+            className="mb-3 text-left text-[11px] rounded-md border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-amber-300"
+          >
             {pending!.length} item{pending!.length === 1 ? "" : "s"} need your review ↓
           </button>
         )}
         <div className="overflow-y-auto flex flex-col gap-1.5">
-          {characters.length === 0 && <p className="text-xs text-ink-400">No characters yet. Write a chapter — the engine reads it in the background and proposes the cast here. Or add someone manually.</p>}
+          {characters.length === 0 && (
+            <p className="text-xs text-ink-400">
+              No characters yet. Write a chapter — the engine reads it in the background and proposes the cast here. Or add someone
+              manually.
+            </p>
+          )}
           {characters.map((c) => (
             <button
               key={c.id}
@@ -192,14 +241,23 @@ export const Characters: React.FC = () => {
             <div>
               <h2 className="font-serif text-lg">Automatic character engine</h2>
               <p className="text-xs text-ink-400 mt-0.5">
-                Chapters are read in the background on creation, manual saves and restores — new profiles, relationships, knowledge and uncertain items appear here.
+                Chapters are read in the background on creation, manual saves and restores — new profiles, relationships, knowledge and
+                uncertain items appear here.
               </p>
             </div>
             <div className="flex gap-2">
               <Button variant="primary" disabled={scanning} onClick={scanNovel}>
-                {scanning ? <><Spinner /> Reading chapters…</> : "Read all chapters"}
+                {scanning ? (
+                  <>
+                    <Spinner /> Reading chapters…
+                  </>
+                ) : (
+                  "Read all chapters"
+                )}
               </Button>
-              <Button variant="subtle" onClick={openWeb}>Relationship web</Button>
+              <Button variant="subtle" onClick={openWeb}>
+                Relationship web
+              </Button>
             </div>
           </div>
 
@@ -216,8 +274,12 @@ export const Characters: React.FC = () => {
                         <span className="text-sm truncate">{title}</span>
                       </div>
                       <div className="flex gap-2 shrink-0">
-                        <Button variant="primary" onClick={() => decide(s, "approve")}>Approve</Button>
-                        <Button variant="subtle" onClick={() => decide(s, "reject")}>Reject</Button>
+                        <Button variant="primary" onClick={() => decide(s, "approve")}>
+                          Approve
+                        </Button>
+                        <Button variant="subtle" onClick={() => decide(s, "reject")}>
+                          Reject
+                        </Button>
                       </div>
                     </div>
                     <p className="text-xs text-ink-400 mt-1">{sum}</p>
@@ -227,7 +289,11 @@ export const Characters: React.FC = () => {
               })}
             </div>
           )}
-          {pending?.length === 0 && <p className="text-[11px] text-ink-400 mt-2">Nothing awaits review. Well-supported facts are filed automatically; uncertain ones land here.</p>}
+          {pending?.length === 0 && (
+            <p className="text-[11px] text-ink-400 mt-2">
+              Nothing awaits review. Well-supported facts are filed automatically; uncertain ones land here.
+            </p>
+          )}
         </Card>
 
         {detail ? (
@@ -238,9 +304,13 @@ export const Characters: React.FC = () => {
                 {detail.aliases.length > 0 && <p className="text-xs text-ink-400">Also known as: {detail.aliases.join(" · ")}</p>}
               </div>
               <div className="flex gap-2">
-                <Button variant="primary" onClick={save}>Save changes</Button>
+                <Button variant="primary" onClick={save}>
+                  Save changes
+                </Button>
                 <Button onClick={() => setMergeTarget(-1)}>Merge…</Button>
-                <Button variant="danger" onClick={remove}>Remove</Button>
+                <Button variant="danger" onClick={remove}>
+                  Remove
+                </Button>
               </div>
             </header>
             <div className="grid md:grid-cols-2 gap-4">
@@ -248,9 +318,18 @@ export const Characters: React.FC = () => {
                 <div key={f.key} className={f.multiline ? "md:col-span-2" : ""}>
                   <Label>{f.label}</Label>
                   {f.multiline ? (
-                    <TextArea rows={3} className="w-full" value={String((detail as any)[f.key] ?? "")} onChange={(e) => setDetail({ ...detail, [f.key]: e.target.value } as FullCharacter)} />
+                    <TextArea
+                      rows={3}
+                      className="w-full"
+                      value={String(detail[f.key] ?? "")}
+                      onChange={(e) => setDetail({ ...detail, [f.key]: e.target.value } as FullCharacter)}
+                    />
                   ) : (
-                    <Input className="w-full" value={String((detail as any)[f.key] ?? "")} onChange={(e) => setDetail({ ...detail, [f.key]: e.target.value } as FullCharacter)} />
+                    <Input
+                      className="w-full"
+                      value={String(detail[f.key] ?? "")}
+                      onChange={(e) => setDetail({ ...detail, [f.key]: e.target.value } as FullCharacter)}
+                    />
                   )}
                 </div>
               ))}
@@ -276,7 +355,9 @@ export const Characters: React.FC = () => {
                 <div className="flex flex-col gap-1.5">
                   {detail.knowledge.map((k) => (
                     <div key={k.id} className="text-sm flex gap-2 items-baseline">
-                      <Tag tone={k.kind === "unaware" ? "amber" : k.kind === "secret" ? "gold" : "blue"}>{KNOWLEDGE_LABELS[k.kind] ?? k.kind}</Tag>
+                      <Tag tone={k.kind === "unaware" ? "amber" : k.kind === "secret" ? "gold" : "blue"}>
+                        {KNOWLEDGE_LABELS[k.kind] ?? k.kind}
+                      </Tag>
                       <span>{k.text}</span>
                       {k.chapterTitle && <span className="text-[10px] text-ink-500">· {k.chapterTitle}</span>}
                     </div>
@@ -289,57 +370,108 @@ export const Characters: React.FC = () => {
             <div className="flex flex-col gap-2 mb-2">
               {detail.events.map((ev, i) => (
                 <div key={ev.id ?? `new-${i}`} className="flex gap-2 items-center">
-                  <Input className="flex-1" value={ev.description} onChange={(e) => {
-                    const events = [...detail.events];
-                    events[i] = { ...ev, description: e.target.value };
-                    setDetail({ ...detail, events });
-                  }} />
-                  <Button variant="subtle" onClick={() => setDetail({ ...detail, events: detail.events.filter((_, j) => j !== i) })}>×</Button>
+                  <Input
+                    className="flex-1"
+                    value={ev.description}
+                    onChange={(e) => {
+                      const events = [...detail.events];
+                      events[i] = { ...ev, description: e.target.value };
+                      setDetail({ ...detail, events });
+                    }}
+                  />
+                  <Button variant="subtle" onClick={() => setDetail({ ...detail, events: detail.events.filter((_, j) => j !== i) })}>
+                    ×
+                  </Button>
                 </div>
               ))}
             </div>
-            <Button onClick={() => setDetail({ ...detail, events: [...detail.events, { id: 0, description: "", chapterId: null }] })}>+ Add event</Button>
+            <Button onClick={() => setDetail({ ...detail, events: [...detail.events, { id: 0, description: "", chapterId: null }] })}>
+              + Add event
+            </Button>
 
             <h3 className="text-sm uppercase tracking-wider text-ink-400 mt-8 mb-2">Relationships</h3>
             <div className="flex flex-col gap-2">
-              {detail.links.length === 0 && <p className="text-xs text-ink-400">No recorded relationships yet. The engine adds confirmed ones automatically; plausible-but-unconfirmed ones wait for your approval.</p>}
+              {detail.links.length === 0 && (
+                <p className="text-xs text-ink-400">
+                  No recorded relationships yet. The engine adds confirmed ones automatically; plausible-but-unconfirmed ones wait for your
+                  approval.
+                </p>
+              )}
               {detail.links.map((l) => {
-                const other = l.fromCharacterId === detail.id ? { name: l.toName, id: l.toCharacterId } : { name: l.fromName, id: l.fromCharacterId };
+                const other =
+                  l.fromCharacterId === detail.id ? { name: l.toName, id: l.toCharacterId } : { name: l.fromName, id: l.fromCharacterId };
                 return (
                   <div key={l.id} className="flex items-center gap-2 text-sm">
                     <Tag tone={l.certainty === "confirmed" ? "blue" : "amber"}>{l.kind || "related"}</Tag>
-                    <span>with <b>{other.name}</b></span>
+                    <span>
+                      with <b>{other.name}</b>
+                    </span>
                     {l.notes && <span className="text-xs text-ink-400">· {l.notes}</span>}
-                    <Button variant="subtle" onClick={() => setDetail({ ...detail, links: detail.links.filter((x) => x.id !== l.id) })}>×</Button>
+                    <Button variant="subtle" onClick={() => setDetail({ ...detail, links: detail.links.filter((x) => x.id !== l.id) })}>
+                      ×
+                    </Button>
                   </div>
                 );
               })}
             </div>
-            <Button className="mt-2" onClick={() => setDetail({ ...detail, links: [...detail.links, { id: Math.random(), kind: "", notes: "", fromCharacterId: detail.id, toCharacterId: 0 } as any] })}>+ Add relationship (then Save)</Button>
-            <p className="text-[11px] text-ink-400 mt-1">Set the other character's id in the saved record — the app links by character names you both appear with.</p>
+            <Button
+              className="mt-2"
+              onClick={() =>
+                setDetail({
+                  ...detail,
+                  links: [
+                    ...detail.links,
+                    {
+                      id: Math.random(),
+                      kind: "",
+                      notes: "",
+                      certainty: "proposed",
+                      fromCharacterId: detail.id,
+                      toCharacterId: 0,
+                      fromName: detail.name,
+                      toName: "",
+                    },
+                  ],
+                })
+              }
+            >
+              + Add relationship (then Save)
+            </Button>
+            <p className="text-[11px] text-ink-400 mt-1">
+              Set the other character's id in the saved record — the app links by character names you both appear with.
+            </p>
           </>
         ) : (
-          <Empty title="Select a character">The engine maintains these records automatically from your chapters; you stay in charge of every review.</Empty>
+          <Empty title="Select a character">
+            The engine maintains these records automatically from your chapters; you stay in charge of every review.
+          </Empty>
         )}
       </section>
 
       {/* Merge modal */}
       <Modal open={mergeTarget !== null} onClose={() => setMergeTarget(null)} title={`Merge into ${detail?.name ?? ""}`}>
-        <p className="text-xs text-ink-400 mb-3">Pick the duplicate profile to fold into <b>{detail?.name}</b>. Its aliases, events, knowledge, appearances and relationships move across; nothing is lost.</p>
+        <p className="text-xs text-ink-400 mb-3">
+          Pick the duplicate profile to fold into <b>{detail?.name}</b>. Its aliases, events, knowledge, appearances and relationships move
+          across; nothing is lost.
+        </p>
         <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
-          {characters.filter((c) => c.id !== detail?.id).map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setMergeTarget(c.id)}
-              className={`text-left rounded-md border px-3 py-2 ${mergeTarget === c.id ? "border-loom-500 bg-ink-850" : "border-ink-800 bg-ink-900 hover:border-ink-700"}`}
-            >
-              <div className="text-sm">{c.name}</div>
-            </button>
-          ))}
+          {characters
+            .filter((c) => c.id !== detail?.id)
+            .map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setMergeTarget(c.id)}
+                className={`text-left rounded-md border px-3 py-2 ${mergeTarget === c.id ? "border-loom-500 bg-ink-850" : "border-ink-800 bg-ink-900 hover:border-ink-700"}`}
+              >
+                <div className="text-sm">{c.name}</div>
+              </button>
+            ))}
         </div>
         <div className="flex justify-end gap-2 mt-4">
           <Button onClick={() => setMergeTarget(null)}>Cancel</Button>
-          <Button variant="primary" disabled={!mergeTarget || mergeTarget === -1} onClick={merge}>Merge</Button>
+          <Button variant="primary" disabled={!mergeTarget || mergeTarget === -1} onClick={merge}>
+            Merge
+          </Button>
         </div>
       </Modal>
 
@@ -357,12 +489,24 @@ export const Characters: React.FC = () => {
               if (!a || !b) return null;
               const angA = (idxOf(l.fromCharacterId) / n) * 2 * Math.PI - Math.PI / 2;
               const angB = (idxOf(l.toCharacterId) / n) * 2 * Math.PI - Math.PI / 2;
-              const ax = 300 + 170 * Math.cos(angA), ay = 200 + 150 * Math.sin(angA);
-              const bx = 300 + 170 * Math.cos(angB), by = 200 + 150 * Math.sin(angB);
+              const ax = 300 + 170 * Math.cos(angA),
+                ay = 200 + 150 * Math.sin(angA);
+              const bx = 300 + 170 * Math.cos(angB),
+                by = 200 + 150 * Math.sin(angB);
               return (
                 <g key={l.id}>
-                  <line x1={ax} y1={ay} x2={bx} y2={by} stroke={l.certainty === "confirmed" ? "var(--color-ink-600, #444)" : "#b45309"} strokeWidth={1.5} strokeDasharray={l.certainty === "confirmed" ? "" : "4 3"} />
-                  <text x={(ax + bx) / 2} y={(ay + by) / 2 - 4} fontSize="9" fill="#999" textAnchor="middle">{l.kind}</text>
+                  <line
+                    x1={ax}
+                    y1={ay}
+                    x2={bx}
+                    y2={by}
+                    stroke={l.certainty === "confirmed" ? "var(--color-ink-600, #444)" : "#b45309"}
+                    strokeWidth={1.5}
+                    strokeDasharray={l.certainty === "confirmed" ? "" : "4 3"}
+                  />
+                  <text x={(ax + bx) / 2} y={(ay + by) / 2 - 4} fontSize="9" fill="#999" textAnchor="middle">
+                    {l.kind}
+                  </text>
                 </g>
               );
             })}
@@ -373,14 +517,20 @@ export const Characters: React.FC = () => {
               return (
                 <g key={n.id}>
                   <circle cx={x} cy={y} r={16} fill="#1c1c22" stroke="#3f3f46" />
-                  <text x={x} y={y + 3} fontSize="8" fill="#ddd" textAnchor="middle">{n.name.slice(0, 3)}</text>
-                  <text x={x} y={y + 30} fontSize="10" fill="#aaa" textAnchor="middle">{n.name}</text>
+                  <text x={x} y={y + 3} fontSize="8" fill="#ddd" textAnchor="middle">
+                    {n.name.slice(0, 3)}
+                  </text>
+                  <text x={x} y={y + 30} fontSize="10" fill="#aaa" textAnchor="middle">
+                    {n.name}
+                  </text>
                 </g>
               );
             })}
           </svg>
         )}
-        <p className="text-[11px] text-ink-400 mt-2">Solid lines: confirmed by the manuscript · dashed amber: suggested, awaiting your approval.</p>
+        <p className="text-[11px] text-ink-400 mt-2">
+          Solid lines: confirmed by the manuscript · dashed amber: suggested, awaiting your approval.
+        </p>
       </Modal>
 
       {/* New character dialog */}
@@ -393,7 +543,9 @@ export const Characters: React.FC = () => {
         </div>
         <div className="flex justify-end gap-2 mt-4">
           <Button onClick={() => setCreating(false)}>Cancel</Button>
-          <Button variant="primary" onClick={create}>Create</Button>
+          <Button variant="primary" onClick={create}>
+            Create
+          </Button>
         </div>
       </Modal>
     </div>

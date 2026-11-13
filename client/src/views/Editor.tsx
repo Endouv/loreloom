@@ -348,7 +348,7 @@ export const Editor: React.FC = () => {
         "/ai/write",
         { novelId: activeNovelId, chapterId: chapter.id, mode, input, instructions: aiInstructions },
         {
-          onStart: (e) => setAiModel(e.model),
+          onStart: (e) => setAiModel(e.model ?? ""),
           onDelta: (t) => setAiOutput((o) => o + t),
           onEvent: (type, e) => {
             if (type === "error") setError(e.message || "Generation failed.");

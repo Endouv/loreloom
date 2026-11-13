@@ -1,17 +1,32 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Button, Card, Empty, Tag, useAppState } from "../ui.js";
+import { Card, Empty, Tag, useAppState } from "../ui.js";
 
 interface Dash {
   novels: { id: number; title: string; genre: string; chapterCount: number; wordCount: number; targetWords: number; updatedAt: string }[];
-  recentChapters: { id: number; title: string; novel_id: number; novel_title: string; word_count: number; status: string; updated_at: string }[];
-  stats: { totalWords: number; totalChapters: number; novelCount: number; characterCount: number; pendingSuggestions: number; openQuestions: number };
+  recentChapters: {
+    id: number;
+    title: string;
+    novel_id: number;
+    novel_title: string;
+    word_count: number;
+    status: string;
+    updated_at: string;
+  }[];
+  stats: {
+    totalWords: number;
+    totalChapters: number;
+    novelCount: number;
+    characterCount: number;
+    pendingSuggestions: number;
+    openQuestions: number;
+  };
   recentNotes: { id: number; title: string; notes: string; novel_title: string }[];
   recentActivity: { task: string; model: string | null; ok: number; created_at: string; detail: string }[];
 }
 
 export const Dashboard: React.FC = () => {
-  const { activeNovelId, setActiveNovel } = useAppState();
+  const { setActiveNovel } = useAppState();
   const [dash, setDash] = useState<Dash | null>(null);
   const [error, setError] = useState("");
 
@@ -58,15 +73,17 @@ export const Dashboard: React.FC = () => {
         <Card className="p-4 mb-8 border-loom-600/50">
           <span className="text-sm">
             <Tag tone="amber">{dash.stats.pendingSuggestions} AI suggestions</Tag> are waiting in Story Memory for your review.{" "}
-            <a className="text-loom-500 underline" href="/memory">Review them</a>
+            <a className="text-loom-500 underline" href="/memory">
+              Review them
+            </a>
           </span>
         </Card>
       )}
 
       {!hasProjects ? (
         <Empty title="No novels yet">
-          Create your first novel in <b>My Novels</b>, then open the <b>Chapter Editor</b> to start writing. The AI waits
-          for you in <b>AI Assistant</b>.
+          Create your first novel in <b>My Novels</b>, then open the <b>Chapter Editor</b> to start writing. The AI waits for you in{" "}
+          <b>AI Assistant</b>.
         </Empty>
       ) : (
         <div className="grid md:grid-cols-3 gap-6">
@@ -74,7 +91,11 @@ export const Dashboard: React.FC = () => {
             <h2 className="text-sm uppercase tracking-wider text-ink-400 mb-3">Recent projects</h2>
             <div className="flex flex-col gap-3">
               {dash.novels.map((n) => (
-                <Card key={n.id} className="p-4 flex items-center justify-between hover:border-loom-600/50 cursor-pointer" onClick={() => setActiveNovel(n.id)}>
+                <Card
+                  key={n.id}
+                  className="p-4 flex items-center justify-between hover:border-loom-600/50 cursor-pointer"
+                  onClick={() => setActiveNovel(n.id)}
+                >
                   <div>
                     <div className="font-serif text-lg">{n.title}</div>
                     <div className="text-xs text-ink-400">
@@ -82,7 +103,14 @@ export const Dashboard: React.FC = () => {
                       {n.targetWords > 0 ? ` of ${n.targetWords.toLocaleString()}` : ""}
                     </div>
                   </div>
-                  <a href="/editor" onClick={(e) => { e.stopPropagation(); setActiveNovel(n.id); }} className="text-sm text-loom-500 hover:underline">
+                  <a
+                    href="/editor"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveNovel(n.id);
+                    }}
+                    className="text-sm text-loom-500 hover:underline"
+                  >
                     Edit →
                   </a>
                 </Card>
@@ -98,7 +126,9 @@ export const Dashboard: React.FC = () => {
                     <span className="text-sm">{c.title}</span>
                     <span className="text-[11px] text-ink-400">{c.word_count} w</span>
                   </div>
-                  <div className="text-[11px] text-ink-400 mt-0.5">{c.novel_title} · {c.status}</div>
+                  <div className="text-[11px] text-ink-400 mt-0.5">
+                    {c.novel_title} · {c.status}
+                  </div>
                 </Card>
               ))}
             </div>

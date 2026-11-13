@@ -38,11 +38,11 @@ novelsRouter.get(
       .prepare(
         `SELECT n.*, COUNT(c.id) as chapters, COALESCE(SUM(c.word_count), 0) as words
          FROM novels n LEFT JOIN chapters c ON c.novel_id = n.id
-         GROUP BY n.id ORDER BY n.updated_at DESC`
+         GROUP BY n.id ORDER BY n.updated_at DESC`,
       )
       .all() as (NovelRow & { chapters: number; words: number })[];
     res.json(rows.map((r) => shapeNovel(r, { chapters: r.chapters, words: r.words })));
-  })
+  }),
 );
 
 novelsRouter.post(
@@ -51,13 +51,11 @@ novelsRouter.post(
     const { title, genre = "", status = "draft", targetWords = 0, synopsis = "", tags = [] } = req.body ?? {};
     if (!title || typeof title !== "string") badRequest("Novel title is required");
     const info = db
-      .prepare(
-        `INSERT INTO novels (title, genre, status, target_words, synopsis, tags) VALUES (?, ?, ?, ?, ?, ?)`
-      )
+      .prepare(`INSERT INTO novels (title, genre, status, target_words, synopsis, tags) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(title.trim(), genre, status, Number(targetWords) || 0, synopsis, stringifyJson(tags));
     const row = db.prepare("SELECT * FROM novels WHERE id = ?").get(info.lastInsertRowid) as NovelRow;
     res.status(201).json(shapeNovel(row, { chapters: 0, words: 0 }));
-  })
+  }),
 );
 
 novelsRouter.get(
@@ -69,7 +67,7 @@ novelsRouter.get(
       .prepare("SELECT COUNT(*) as chapters, COALESCE(SUM(word_count), 0) as words FROM chapters WHERE novel_id = ?")
       .get(row.id) as { chapters: number; words: number };
     res.json(shapeNovel(row, stats));
-  })
+  }),
 );
 
 novelsRouter.put(
@@ -102,7 +100,7 @@ novelsRouter.put(
       .prepare("SELECT COUNT(*) as chapters, COALESCE(SUM(word_count), 0) as words FROM chapters WHERE novel_id = ?")
       .get(row.id) as { chapters: number; words: number };
     res.json(shapeNovel(row, stats));
-  })
+  }),
 );
 
 novelsRouter.delete(
@@ -111,5 +109,5 @@ novelsRouter.delete(
     const info = db.prepare("DELETE FROM novels WHERE id = ?").run(req.params.id);
     if (!info.changes) return res.status(404).json({ error: "Novel not found" });
     res.json({ ok: true });
-  })
+  }),
 );

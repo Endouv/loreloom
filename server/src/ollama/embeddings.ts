@@ -61,7 +61,10 @@ export async function embedTexts(model: string, texts: string[]): Promise<number
 }
 
 /** Index chapters (chunked), memory items, characters and world entries. Returns per-kind counts. */
-export async function ensureIndex(novelId: number, kinds: string[] = ["chapter", "memory", "character", "world"]): Promise<Record<string, number>> {
+export async function ensureIndex(
+  novelId: number,
+  kinds: string[] = ["chapter", "memory", "character", "world"],
+): Promise<Record<string, number>> {
   const model = await getEmbeddingModel();
   const result: Record<string, number> = {};
   for (const kind of kinds) {
@@ -71,7 +74,10 @@ export async function ensureIndex(novelId: number, kinds: string[] = ["chapter",
       for (const ch of chapters) {
         const chunks = chunkText(ch.body);
         const tx = db.transaction(() => {
-          const existing = db.prepare("SELECT id, hash FROM embeddings_chunks WHERE kind = 'chapter' AND chapter_id = ?").all(ch.id) as { id: number; hash: string }[];
+          const existing = db.prepare("SELECT id, hash FROM embeddings_chunks WHERE kind = 'chapter' AND chapter_id = ?").all(ch.id) as {
+            id: number;
+            hash: string;
+          }[];
           const liveHashes = new Set(chunks.map(sha1));
           for (const row of existing) if (!liveHashes.has(row.hash)) db.prepare("DELETE FROM embeddings_chunks WHERE id = ?").run(row.id);
           const have = new Set(existing.map((e) => e.hash));
@@ -83,16 +89,24 @@ export async function ensureIndex(novelId: number, kinds: string[] = ["chapter",
         });
         tx();
       }
-      pending = db.prepare("SELECT id, text, hash FROM embeddings_chunks WHERE novel_id = ? AND kind = 'chapter' AND embedding IS NULL").all(novelId) as EmbedRow[];
+      pending = db
+        .prepare("SELECT id, text, hash FROM embeddings_chunks WHERE novel_id = ? AND kind = 'chapter' AND embedding IS NULL")
+        .all(novelId) as EmbedRow[];
     } else {
       const items: { id: number; text: string }[] =
         kind === "memory"
-          ? (db.prepare("SELECT id, text FROM memory_items WHERE novel_id = ? AND bucket IN ('canon','provisional','question')").all(novelId) as { id: number; text: string }[])
+          ? (db
+              .prepare("SELECT id, text FROM memory_items WHERE novel_id = ? AND bucket IN ('canon','provisional','question')")
+              .all(novelId) as { id: number; text: string }[])
           : kind === "character"
             ? (db
-                .prepare("SELECT id, text FROM (SELECT id, name || ' ' || personality || ' ' || background || ' ' || motivations || ' ' || story_status AS text FROM characters WHERE novel_id = ?)")
+                .prepare(
+                  "SELECT id, text FROM (SELECT id, name || ' ' || personality || ' ' || background || ' ' || motivations || ' ' || story_status AS text FROM characters WHERE novel_id = ?)",
+                )
                 .all(novelId) as { id: number; text: string }[])
-            : (db.prepare("SELECT id, category || ': ' || title || '. ' || body AS text FROM world_entries WHERE novel_id = ?").all(novelId) as { id: number; text: string }[]);
+            : (db
+                .prepare("SELECT id, category || ': ' || title || '. ' || body AS text FROM world_entries WHERE novel_id = ?")
+                .all(novelId) as { id: number; text: string }[]);
       const tx = db.transaction(() => {
         const del = db.prepare(`DELETE FROM embeddings_chunks WHERE novel_id = ? AND kind = '${kind}'`);
         del.run(novelId);
@@ -102,7 +116,9 @@ export async function ensureIndex(novelId: number, kinds: string[] = ["chapter",
         }
       });
       tx();
-      pending = db.prepare(`SELECT id, text, hash FROM embeddings_chunks WHERE novel_id = ? AND kind = '${kind}' AND embedding IS NULL`).all(novelId) as EmbedRow[];
+      pending = db
+        .prepare(`SELECT id, text, hash FROM embeddings_chunks WHERE novel_id = ? AND kind = '${kind}' AND embedding IS NULL`)
+        .all(novelId) as EmbedRow[];
     }
 
     // Embed in small batches; a failure leaves rows with NULL embedding for a later retry.
@@ -111,7 +127,10 @@ export async function ensureIndex(novelId: number, kinds: string[] = ["chapter",
       for (let i = 0; i < pending.length; i += EMBED_BATCH) {
         const batch = pending.slice(i, i + EMBED_BATCH);
         try {
-          const vectors = await embedTexts(model, batch.map((b) => b.text));
+          const vectors = await embedTexts(
+            model,
+            batch.map((b) => b.text),
+          );
           const upd = db.prepare("UPDATE embeddings_chunks SET embedding = ?, model = ? WHERE id = ?");
           batch.forEach((row, j) => {
             upd.run(Buffer.from(Float32Array.from(vectors[j] ?? []).buffer), model, row.id);
@@ -138,7 +157,10 @@ export interface ScoredChunk {
 
 const keywordScore = (needle: string, haystack: string): number => {
   const lower = haystack.toLowerCase();
-  const words = needle.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const words = needle
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
   if (!words.length) return 0;
   let hits = 0;
   for (const w of words) if (lower.includes(w)) hits++;
@@ -147,8 +169,18 @@ const keywordScore = (needle: string, haystack: string): number => {
 
 export async function semanticSearch(novelId: number, kinds: string[], query: string, k = 10): Promise<ScoredChunk[]> {
   const rows = db
-    .prepare(`SELECT id, kind, item_id, chapter_id, text, hash, embedding FROM embeddings_chunks WHERE novel_id = ? AND kind IN (${kinds.map(() => "?").join(", ")})`)
-    .all(novelId, ...kinds) as { id: number; kind: string; item_id: number | null; chapter_id: number | null; text: string; hash: string; embedding: Buffer | null }[];
+    .prepare(
+      `SELECT id, kind, item_id, chapter_id, text, hash, embedding FROM embeddings_chunks WHERE novel_id = ? AND kind IN (${kinds.map(() => "?").join(", ")})`,
+    )
+    .all(novelId, ...kinds) as {
+    id: number;
+    kind: string;
+    item_id: number | null;
+    chapter_id: number | null;
+    text: string;
+    hash: string;
+    embedding: Buffer | null;
+  }[];
 
   if (rows.length === 0) return [];
 
@@ -175,7 +207,6 @@ export async function semanticSearch(novelId: number, kinds: string[], query: st
     return na && nb ? dot / Math.sqrt(na * nb) : 0;
   };
 
-  const keywordRows = rows.filter((r) => !queryVec || !r.embedding);
   return rows
     .map((r) => {
       let score = 0;
@@ -194,7 +225,7 @@ export async function semanticSearch(novelId: number, kinds: string[], query: st
 export function memoryIndexStatus(novelId: number) {
   const row = db
     .prepare(
-      "SELECT COUNT(*) as total, SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) as embedded FROM embeddings_chunks WHERE novel_id = ? AND kind = 'chapter'"
+      "SELECT COUNT(*) as total, SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) as embedded FROM embeddings_chunks WHERE novel_id = ? AND kind = 'chapter'",
     )
     .get(novelId) as { total: number; embedded: number | null };
   return { total: row.total ?? 0, embedded: row.embedded ?? 0 };

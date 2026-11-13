@@ -61,7 +61,11 @@ const KNOWLEDGE_KINDS = ["discovered", "met", "witnessed", "secret", "unaware"];
 // ------------------------------------------------------------- name matching
 
 const norm = (s: string): string =>
-  s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+  s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /**
  * True when two different spellings plausibly refer to the same person
@@ -79,7 +83,8 @@ export function similarNames(a: string, b: string): boolean {
   return levenshtein(na, nb) <= maxDist;
 }
 
-function levenshtein(a: string, b: string): number {  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+function levenshtein(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     const cur = [i];
     for (let j = 1; j <= b.length; j++) {
@@ -97,8 +102,11 @@ export interface CastEntry {
 }
 
 export function loadCast(novelId: number): CastEntry[] {
-  const rows = db.prepare("SELECT id, name, aliases FROM characters WHERE novel_id = ?").all(novelId) as
-    { id: number; name: string; aliases: string }[];
+  const rows = db.prepare("SELECT id, name, aliases FROM characters WHERE novel_id = ?").all(novelId) as {
+    id: number;
+    name: string;
+    aliases: string;
+  }[];
   return rows.map((r) => ({ id: r.id, name: r.name, aliases: parseJson(r.aliases, []) as string[] }));
 }
 
@@ -159,11 +167,21 @@ function parseExtraction(raw: string): CharacterExtraction | null {
     const relationships = (Array.isArray(parsed.relationships) ? parsed.relationships : [])
       .filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && norm(r.from) !== norm(r.to))
       .slice(0, 40)
-      .map((r) => ({ from: r.from.trim(), to: r.to.trim(), kind: (r.kind ?? "unknown").toString().slice(0, 60), notes: typeof r.notes === "string" ? r.notes.slice(0, 1000) : "", certain: r.certain !== false }));
+      .map((r) => ({
+        from: r.from.trim(),
+        to: r.to.trim(),
+        kind: (r.kind ?? "unknown").toString().slice(0, 60),
+        notes: typeof r.notes === "string" ? r.notes.slice(0, 1000) : "",
+        certain: r.certain !== false,
+      }));
     const knowledge = (Array.isArray(parsed.knowledge) ? parsed.knowledge : [])
       .filter((k) => k && typeof k.character === "string" && typeof k.text === "string" && k.text.trim().length > 2)
       .slice(0, 40)
-      .map((k) => ({ character: k.character.trim(), kind: KNOWLEDGE_KINDS.includes(k.kind) ? k.kind : "discovered", text: k.text.trim().slice(0, 600) }));
+      .map((k) => ({
+        character: k.character.trim(),
+        kind: KNOWLEDGE_KINDS.includes(k.kind) ? k.kind : "discovered",
+        text: k.text.trim().slice(0, 600),
+      }));
     const events = (Array.isArray(parsed.events) ? parsed.events : [])
       .filter((e) => e && typeof e.character === "string" && typeof e.description === "string" && e.description.trim().length > 2)
       .slice(0, 40)
@@ -210,14 +228,20 @@ export function applyExtraction(novelId: number, chapterId: number | null, ext: 
     }
     const conflict = isNameConflict(cast, c.name);
     if (conflict) {
-      enqueueSuggestion(novelId, chapterId, "merge", { existingId: conflict.id, existingName: conflict.name, newName: c.name, aliases: c.aliases ?? [] }, `A new name "${c.name}" closely resembles "${conflict.name}" — same person, typo or a different character?`);
+      enqueueSuggestion(
+        novelId,
+        chapterId,
+        "merge",
+        { existingId: conflict.id, existingName: conflict.name, newName: c.name, aliases: c.aliases ?? [] },
+        `A new name "${c.name}" closely resembles "${conflict.name}" — same person, typo or a different character?`,
+      );
       result.suggestions++;
       continue;
     }
     const info = db
       .prepare(
         `INSERT INTO characters (novel_id, name, aliases, personality, appearance, background, motivations, first_appearance_chapter_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         novelId,
@@ -227,7 +251,7 @@ export function applyExtraction(novelId: number, chapterId: number | null, ext: 
         c.appearance ?? "",
         c.background ?? "",
         c.motivations ?? "",
-        chapterId
+        chapterId,
       );
     const id = Number(info.lastInsertRowid);
     cast.push({
@@ -245,13 +269,19 @@ export function applyExtraction(novelId: number, chapterId: number | null, ext: 
   for (const k of ext.knowledge) {
     const who = resolveName(cast, k.character);
     if (!who) {
-      enqueueSuggestion(novelId, chapterId, "update", { unresolvedCharacter: k.character, item: { kind: "knowledge", data: k } }, `Knowledge mention references "${k.character}", who is not in the cast.`);
+      enqueueSuggestion(
+        novelId,
+        chapterId,
+        "update",
+        { unresolvedCharacter: k.character, item: { kind: "knowledge", data: k } },
+        `Knowledge mention references "${k.character}", who is not in the cast.`,
+      );
       result.suggestions++;
       continue;
     }
     const info = db
       .prepare(
-        `INSERT OR IGNORE INTO character_knowledge (novel_id, character_id, chapter_id, kind, text, source) VALUES (?, ?, ?, ?, ?, 'ai')`
+        `INSERT OR IGNORE INTO character_knowledge (novel_id, character_id, chapter_id, kind, text, source) VALUES (?, ?, ?, ?, ?, 'ai')`,
       )
       .run(novelId, who.id, chapterId, k.kind, k.text);
     if (info.changes) result.attachedKnowledge++;
@@ -260,11 +290,21 @@ export function applyExtraction(novelId: number, chapterId: number | null, ext: 
   for (const e of ext.events) {
     const who = resolveName(cast, e.character);
     if (!who) {
-      enqueueSuggestion(novelId, chapterId, "update", { unresolvedCharacter: e.character, item: { kind: "event", data: e } }, `Action references "${e.character}", who is not in the cast.`);
+      enqueueSuggestion(
+        novelId,
+        chapterId,
+        "update",
+        { unresolvedCharacter: e.character, item: { kind: "event", data: e } },
+        `Action references "${e.character}", who is not in the cast.`,
+      );
       result.suggestions++;
       continue;
     }
-    db.prepare(`INSERT INTO character_events (character_id, description, chapter_id, source) VALUES (?, ?, ?, 'ai')`).run(who.id, e.description, chapterId);
+    db.prepare(`INSERT INTO character_events (character_id, description, chapter_id, source) VALUES (?, ?, ?, 'ai')`).run(
+      who.id,
+      e.description,
+      chapterId,
+    );
     result.attachedEvents++;
   }
 
@@ -272,7 +312,13 @@ export function applyExtraction(novelId: number, chapterId: number | null, ext: 
     const from = resolveName(cast, r.from);
     const to = resolveName(cast, r.to);
     if (!from || !to) {
-      enqueueSuggestion(novelId, chapterId, "relationship", { rel: r }, `Relationship references an unknown name (${!from ? r.from : r.to}).`);
+      enqueueSuggestion(
+        novelId,
+        chapterId,
+        "relationship",
+        { rel: r },
+        `Relationship references an unknown name (${!from ? r.from : r.to}).`,
+      );
       result.suggestions++;
       continue;
     }
@@ -289,15 +335,19 @@ function castRefresh(cast: CastEntry[], novelId: number) {
 }
 
 function recordAppearance(novelId: number, characterId: number, chapterId: number, kind: string) {
-  db.prepare(`INSERT OR IGNORE INTO character_appearances (novel_id, character_id, chapter_id, kind) VALUES (?, ?, ?, ?)`).run(novelId, characterId, chapterId, kind);
+  db.prepare(`INSERT OR IGNORE INTO character_appearances (novel_id, character_id, chapter_id, kind) VALUES (?, ?, ?, ?)`).run(
+    novelId,
+    characterId,
+    chapterId,
+    kind,
+  );
 }
 
 /** Fill empty profile fields and append unseen aliases; conflicts become suggestions. */
 function applyProfileUpdates(novelId: number, characterId: number, c: ExtractedCharacter, chapterId: number | null, result: ApplyResult) {
   if (chapterId) recordAppearance(novelId, characterId, chapterId, c.present === false ? "mentioned" : "onscene");
   const row = db.prepare("SELECT * FROM characters WHERE id = ?").get(characterId) as
-    | { id: number; aliases: string; appearance: string; personality: string; background: string; motivations: string }
-    | undefined;
+    { id: number; aliases: string; appearance: string; personality: string; background: string; motivations: string } | undefined;
   if (!row) return;
 
   for (const [extKey, column] of PROFILE_FIELDS) {
@@ -312,7 +362,7 @@ function applyProfileUpdates(novelId: number, characterId: number, c: ExtractedC
         chapterId,
         "update",
         { characterId, field: column, existing: existing.slice(0, 2000), proposed: proposed.slice(0, 2000) },
-        `Extracted "${column}" differs from the established record for ${c.name}.`
+        `Extracted "${column}" differs from the established record for ${c.name}.`,
       );
       result.suggestions++;
     }
@@ -326,7 +376,7 @@ function applyProfileUpdates(novelId: number, characterId: number, c: ExtractedC
   if (newOnes.length) {
     db.prepare("UPDATE characters SET aliases = ?, updated_at = datetime('now') WHERE id = ?").run(
       stringifyJson([...aliases, ...newOnes.map((a) => a.trim())]),
-      characterId
+      characterId,
     );
   }
 }
@@ -337,12 +387,12 @@ function applyRelationship(
   from: CastEntry,
   to: CastEntry,
   r: ExtractedRelationship,
-  result: ApplyResult
+  result: ApplyResult,
 ) {
   const existing = db
     .prepare(
       `SELECT id, kind, certainty FROM character_links
-       WHERE (from_character_id = ? AND to_character_id = ?) OR (from_character_id = ? AND to_character_id = ?)`
+       WHERE (from_character_id = ? AND to_character_id = ?) OR (from_character_id = ? AND to_character_id = ?)`,
     )
     .get(from.id, to.id, to.id, from.id) as { id: number; kind: string; certainty: string } | undefined;
 
@@ -352,8 +402,16 @@ function applyRelationship(
         novelId,
         chapterId,
         "relationship",
-        { fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, existingKind: existing.kind, kind: r.kind, notes: r.notes ?? "" },
-        `Relationship between ${from.name} and ${to.name} was "${existing.kind}" but the chapter suggests "${r.kind}".`
+        {
+          fromId: from.id,
+          fromName: from.name,
+          toId: to.id,
+          toName: to.name,
+          existingKind: existing.kind,
+          kind: r.kind,
+          notes: r.notes ?? "",
+        },
+        `Relationship between ${from.name} and ${to.name} was "${existing.kind}" but the chapter suggests "${r.kind}".`,
       );
       result.suggestions++;
     }
@@ -366,14 +424,14 @@ function applyRelationship(
       chapterId,
       "relationship",
       { fromId: from.id, fromName: from.name, toId: to.id, toName: to.name, kind: r.kind, notes: r.notes ?? "" },
-      `Interpreted as "${r.kind}" but not explicitly confirmed by the text.`
+      `Interpreted as "${r.kind}" but not explicitly confirmed by the text.`,
     );
     result.suggestions++;
     return;
   }
 
   db.prepare(
-    `INSERT INTO character_links (novel_id, from_character_id, to_character_id, kind, notes, chapter_id, certainty) VALUES (?, ?, ?, ?, ?, ?, 'confirmed')`
+    `INSERT INTO character_links (novel_id, from_character_id, to_character_id, kind, notes, chapter_id, certainty) VALUES (?, ?, ?, ?, ?, ?, 'confirmed')`,
   ).run(novelId, from.id, to.id, r.kind, r.notes ?? "", chapterId);
   result.confirmedLinks++;
 }
@@ -381,14 +439,52 @@ function applyRelationship(
 // ------------------------------------------------------------- review queue
 
 export function enqueueSuggestion(novelId: number, chapterId: number | null, kind: string, payload: unknown, reason = "") {
-  db.prepare(
-    `INSERT INTO character_suggestions (novel_id, chapter_id, kind, payload, reason) VALUES (?, ?, ?, ?, ?)`
-  ).run(novelId, chapterId, kind, stringifyJson(payload), reason);
+  db.prepare(`INSERT INTO character_suggestions (novel_id, chapter_id, kind, payload, reason) VALUES (?, ?, ?, ?, ?)`).run(
+    novelId,
+    chapterId,
+    kind,
+    stringifyJson(payload),
+    reason,
+  );
+}
+
+/** Payload shapes written by enqueueSuggestion() for each review-queue kind. */
+interface SuggestionPayload {
+  // new_character
+  name?: string;
+  aliases?: string[];
+  personality?: string;
+  appearance?: string;
+  background?: string;
+  motivations?: string;
+  relationships?: ExtractedRelationship[];
+  knowledge?: ExtractedKnowledge[];
+  events?: ExtractedEvent[];
+  // update — a profile field that conflicts with the established record
+  characterId?: number;
+  field?: string;
+  existing?: string;
+  proposed?: string;
+  // update — a knowledge/event item whose character is not in the cast yet
+  unresolvedCharacter?: string;
+  item?: { kind?: "knowledge" | "event"; data?: unknown };
+  // relationship
+  rel?: ExtractedRelationship;
+  // merge — a name that looks like an existing character
+  existingId?: number;
+  existingName?: string;
+  newName?: string;
 }
 
 /** Apply an approved suggestion to the database. */
-export function applySuggestion(row: { id: number; novel_id: number; chapter_id: number | null; kind: string; payload: string }): ApplyResult {
-  const payload = parseJson(row.payload, {}) as Record<string, any>;
+export function applySuggestion(row: {
+  id: number;
+  novel_id: number;
+  chapter_id: number | null;
+  kind: string;
+  payload: string;
+}): ApplyResult {
+  const payload = parseJson<SuggestionPayload>(row.payload, {});
   const result: ApplyResult = { created: [], attachedKnowledge: 0, attachedEvents: 0, confirmedLinks: 0, suggestions: 0 };
 
   if (row.kind === "new_character") {
@@ -398,7 +494,7 @@ export function applySuggestion(row: { id: number; novel_id: number; chapter_id:
       const info = db
         .prepare(
           `INSERT INTO characters (novel_id, name, aliases, personality, appearance, background, motivations, first_appearance_chapter_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.novel_id,
@@ -408,7 +504,7 @@ export function applySuggestion(row: { id: number; novel_id: number; chapter_id:
           payload.appearance ?? "",
           payload.background ?? "",
           payload.motivations ?? "",
-          row.chapter_id
+          row.chapter_id,
         );
       result.created.push(Number(info.lastInsertRowid));
       castRefresh(cast, row.novel_id);
@@ -425,22 +521,28 @@ export function applySuggestion(row: { id: number; novel_id: number; chapter_id:
     const applied = applyExtraction(row.novel_id, row.chapter_id, leftover);
     applyResultInto(result, applied);
   } else if (row.kind === "update") {
-    if (payload.characterId && payload.field) {
+    const field = payload.field ?? "";
+    // Column names cannot be bound as parameters, so the name is validated as
+    // a plain identifier before it reaches the statement.
+    if (payload.characterId && /^[a-z][a-z0-9_]*$/.test(field)) {
       // Author approved, so this overwrite is sanctioned.
-      db.prepare(`UPDATE characters SET ${payload.field} = ?, updated_at = datetime('now') WHERE id = ?`).run(payload.proposed ?? "", payload.characterId);
+      db.prepare(`UPDATE characters SET ${field} = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        payload.proposed ?? "",
+        payload.characterId,
+      );
     } else if (payload.item) {
       const applied = applyExtraction(row.novel_id, row.chapter_id, {
         characters: [],
         relationships: [],
-        knowledge: payload.item.kind === "knowledge" ? [payload.item.data] : [],
-        events: payload.item.kind === "event" ? [payload.item.data] : [],
+        knowledge: payload.item.kind === "knowledge" && payload.item.data ? [payload.item.data as ExtractedKnowledge] : [],
+        events: payload.item.kind === "event" && payload.item.data ? [payload.item.data as ExtractedEvent] : [],
       });
       applyResultInto(result, applied);
     }
   } else if (row.kind === "relationship") {
     const applied = applyExtraction(row.novel_id, row.chapter_id, {
       characters: [],
-      relationships: [payload.rel],
+      relationships: payload.rel ? [payload.rel] : [],
       knowledge: [],
       events: [],
     });
@@ -455,7 +557,10 @@ export function applySuggestion(row: { id: number; novel_id: number; chapter_id:
         if (target) {
           const aliases = parseJson(target.aliases, []) as string[];
           if (!aliases.includes(payload.newName)) {
-            db.prepare("UPDATE characters SET aliases = ? WHERE id = ?").run(stringifyJson([...aliases, payload.newName]), payload.existingId);
+            db.prepare("UPDATE characters SET aliases = ? WHERE id = ?").run(
+              stringifyJson([...aliases, payload.newName]),
+              payload.existingId,
+            );
           }
         }
       }
@@ -478,11 +583,9 @@ function applyResultInto(into: ApplyResult, from: ApplyResult) {
 export function mergeCharacters(keepId: number, dropId: number): void {
   if (keepId === dropId) throw Object.assign(new Error("Cannot merge a character with itself"), { status: 400 });
   const keep = db.prepare("SELECT * FROM characters WHERE id = ?").get(keepId) as
-    | { id: number; novel_id: number; name: string; aliases: string; first_appearance_chapter_id: number | null }
-    | undefined;
+    { id: number; novel_id: number; name: string; aliases: string; first_appearance_chapter_id: number | null } | undefined;
   const drop = db.prepare("SELECT * FROM characters WHERE id = ?").get(dropId) as
-    | { id: number; novel_id: number; name: string; aliases: string; first_appearance_chapter_id: number | null }
-    | undefined;
+    { id: number; novel_id: number; name: string; aliases: string; first_appearance_chapter_id: number | null } | undefined;
   if (!keep || !drop || keep.novel_id !== drop.novel_id) throw Object.assign(new Error("Character not found"), { status: 404 });
 
   const tx = db.transaction(() => {
@@ -498,9 +601,11 @@ export function mergeCharacters(keepId: number, dropId: number): void {
     // knowledge has a UNIQUE(character, kind, text) constraint, so move via copy+drop
     db.prepare(
       `INSERT OR IGNORE INTO character_knowledge (novel_id, character_id, chapter_id, kind, text, source, created_at)
-       SELECT novel_id, ?, chapter_id, kind, text, source, created_at FROM character_knowledge WHERE character_id = ?`
+       SELECT novel_id, ?, chapter_id, kind, text, source, created_at FROM character_knowledge WHERE character_id = ?`,
     ).run(keepId, dropId);
-    db.prepare("INSERT OR IGNORE INTO character_appearances (novel_id, character_id, chapter_id, kind) SELECT novel_id, ?, chapter_id, kind FROM character_appearances WHERE character_id = ?").run(keepId, dropId);
+    db.prepare(
+      "INSERT OR IGNORE INTO character_appearances (novel_id, character_id, chapter_id, kind) SELECT novel_id, ?, chapter_id, kind FROM character_appearances WHERE character_id = ?",
+    ).run(keepId, dropId);
     db.prepare("UPDATE character_links SET from_character_id = ? WHERE from_character_id = ?").run(keepId, dropId);
     db.prepare("UPDATE character_links SET to_character_id = ? WHERE to_character_id = ?").run(keepId, dropId);
     db.prepare("DELETE FROM character_links WHERE from_character_id = to_character_id").run();
@@ -515,7 +620,7 @@ export function mergeCharacters(keepId: number, dropId: number): void {
     .prepare(
       `SELECT a.chapter_id FROM character_appearances a
        JOIN chapters c ON c.id = a.chapter_id
-       WHERE a.character_id = ? ORDER BY c.position, c.id LIMIT 1`
+       WHERE a.character_id = ? ORDER BY c.position, c.id LIMIT 1`,
     )
     .get(keepId) as { chapter_id: number } | undefined;
   if (first && keep.first_appearance_chapter_id == null) {
@@ -531,16 +636,19 @@ export function mergeCharacters(keepId: number, dropId: number): void {
  * Returns { skipped: true } when the chapter body is unchanged since the last
  * run, or when no model is available (nothing else fails).
  */
-export async function analyzeChapterCharacters(chapterId: number, force = false): Promise<{ skipped: boolean; reason?: string; result?: ApplyResult; model?: string }> {
+export async function analyzeChapterCharacters(
+  chapterId: number,
+  force = false,
+): Promise<{ skipped: boolean; reason?: string; result?: ApplyResult; model?: string }> {
   const chapter = db.prepare("SELECT id, novel_id, body FROM chapters WHERE id = ?").get(chapterId) as
-    | { id: number; novel_id: number; body: string }
-    | undefined;
+    { id: number; novel_id: number; body: string } | undefined;
   if (!chapter) throw Object.assign(new Error("Chapter not found"), { status: 404 });
   const body = chapter.body.trim();
   if (!body) return { skipped: true, reason: "empty chapter" };
 
   const hash = sha1(body);
-  const prior = db.prepare("SELECT body_hash FROM chapter_analysis WHERE chapter_id = ?").get(chapterId) as { body_hash: string } | undefined;
+  const prior = db.prepare("SELECT body_hash FROM chapter_analysis WHERE chapter_id = ?").get(chapterId) as
+    { body_hash: string } | undefined;
   if (prior && prior.body_hash === hash && !force) return { skipped: true, reason: "unchanged since last analysis" };
 
   // Re-analysis of an edited chapter: remove what the previous pass concluded
@@ -585,11 +693,9 @@ export async function analyzeChapterCharacters(chapterId: number, force = false)
   }
 
   const result = applyExtraction(chapter.novel_id, chapterId, extraction);
-  db.prepare("INSERT OR REPLACE INTO chapter_analysis (chapter_id, novel_id, body_hash, analyzed_at) VALUES (?, ?, ?, datetime('now'))").run(
-    chapterId,
-    chapter.novel_id,
-    hash
-  );
+  db.prepare(
+    "INSERT OR REPLACE INTO chapter_analysis (chapter_id, novel_id, body_hash, analyzed_at) VALUES (?, ?, ?, datetime('now'))",
+  ).run(chapterId, chapter.novel_id, hash);
   logActivity(
     chapter.novel_id,
     "characters:analyze",
@@ -597,7 +703,7 @@ export async function analyzeChapterCharacters(chapterId: number, force = false)
     "light",
     Date.now() - started,
     true,
-    `${result.created.length} new, ${result.suggestions} review items`
+    `${result.created.length} new, ${result.suggestions} review items`,
   );
   return { skipped: false, result, model };
 }

@@ -78,7 +78,7 @@ export async function getVersion(): Promise<string | null> {
 
 export async function listModels(): Promise<OllamaModel[]> {
   const data = await fetchJson<{ models: Array<{ name: string; size: number; details?: Record<string, string>; modified_at?: string }> }>(
-    "/api/tags"
+    "/api/tags",
   );
   return data.models.map((m) => {
     const param = m.details?.["parameter_size"] ?? "";
@@ -96,9 +96,13 @@ export async function listModels(): Promise<OllamaModel[]> {
 }
 
 /** Parse a newline-delimited Ollama chat stream and yield text deltas. */
-export async function* chatStream(
-  opts: { model: string; messages: ChatMessage[]; temperature?: number; numCtx?: number; signal?: AbortSignal }
-): AsyncGenerator<{ text?: string; done?: boolean }> {
+export async function* chatStream(opts: {
+  model: string;
+  messages: ChatMessage[];
+  temperature?: number;
+  numCtx?: number;
+  signal?: AbortSignal;
+}): AsyncGenerator<{ text?: string; done?: boolean }> {
   let resp: Response;
   try {
     resp = await fetch(OLLAMA_BASE + "/api/chat", {
@@ -116,7 +120,8 @@ export async function* chatStream(
       signal: chatSignal(opts.signal),
     });
   } catch (err) {
-    if (isTimeout(err)) throw new Error(`Ollama did not respond within ${CHAT_TIMEOUT_MS / 60000} minutes. Try a smaller model or a shorter passage.`);
+    if (isTimeout(err))
+      throw new Error(`Ollama did not respond within ${CHAT_TIMEOUT_MS / 60000} minutes. Try a smaller model or a shorter passage.`);
     throw err;
   }
   if (!resp.ok || !resp.body) {
@@ -154,7 +159,13 @@ export async function* chatStream(
 }
 
 /** Non-streaming chat completion, used by structured/JSON tasks. */
-export async function chatOnce(opts: { model: string; messages: ChatMessage[]; temperature?: number; numCtx?: number; signal?: AbortSignal }): Promise<string> {
+export async function chatOnce(opts: {
+  model: string;
+  messages: ChatMessage[];
+  temperature?: number;
+  numCtx?: number;
+  signal?: AbortSignal;
+}): Promise<string> {
   let resp: Response;
   try {
     resp = await fetch(OLLAMA_BASE + "/api/chat", {
@@ -172,7 +183,8 @@ export async function chatOnce(opts: { model: string; messages: ChatMessage[]; t
       signal: chatSignal(opts.signal),
     });
   } catch (err) {
-    if (isTimeout(err)) throw new Error(`Ollama did not respond within ${CHAT_TIMEOUT_MS / 60000} minutes. Try a smaller model or a shorter passage.`);
+    if (isTimeout(err))
+      throw new Error(`Ollama did not respond within ${CHAT_TIMEOUT_MS / 60000} minutes. Try a smaller model or a shorter passage.`);
     throw err;
   }
   if (!resp.ok) {

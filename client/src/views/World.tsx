@@ -21,12 +21,19 @@ export const World: React.FC = () => {
   const [entries, setEntries] = useState<WorldEntry[]>([]);
   const [selected, setSelected] = useState<WorldEntry | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState<{ category: string; title: string; body: string }>({ category: WORLD_CATEGORIES[0] as string, title: "", body: "" });
+  const [form, setForm] = useState<{ category: string; title: string; body: string }>({
+    category: WORLD_CATEGORIES[0] as string,
+    title: "",
+    body: "",
+  });
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
     if (!activeNovelId) return;
-    api.get<WorldEntry[]>(`/novels/${activeNovelId}/world`).then(setEntries).catch((e) => setError(e.message));
+    api
+      .get<WorldEntry[]>(`/novels/${activeNovelId}/world`)
+      .then(setEntries)
+      .catch((e) => setError(e.message));
   }, [activeNovelId]);
   useEffect(load, [load]);
   useEffect(() => setSelected(null), [activeNovelId]);
@@ -61,16 +68,29 @@ export const World: React.FC = () => {
     setSelected(created);
   };
 
-  if (!activeNovelId) return <Empty title="No novel selected">Pick a project in <b>My Novels</b> first.</Empty>;
+  if (!activeNovelId)
+    return (
+      <Empty title="No novel selected">
+        Pick a project in <b>My Novels</b> first.
+      </Empty>
+    );
 
   return (
     <div className="max-w-6xl mx-auto p-8 flex gap-6 h-full min-h-0">
       <aside className="w-72 shrink-0 overflow-y-auto">
         <header className="flex items-center justify-between mb-3">
           <h1 className="font-serif text-xl">Worldbuilding</h1>
-          <Button variant="primary" onClick={() => setCreating(true)}>+</Button>
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            +
+          </Button>
         </header>
-        {entries.length === 0 && <p className="text-xs text-ink-400">Nothing yet. Define regions, factions, rules and mysteries — the AI borrows them when writing your scenes and checks continuity against them.</p>}
+        {error && <p className="mb-3 text-[11px] text-red-300 border border-red-900/60 rounded-md px-3 py-2">{error}</p>}
+        {entries.length === 0 && (
+          <p className="text-xs text-ink-400">
+            Nothing yet. Define regions, factions, rules and mysteries — the AI borrows them when writing your scenes and checks continuity
+            against them.
+          </p>
+        )}
         {Object.entries(grouped).map(([cat, list]) => (
           <div key={cat} className="mb-4">
             <div className="text-[11px] uppercase tracking-wider text-ink-400 mb-1">{cat}</div>
@@ -95,8 +115,12 @@ export const World: React.FC = () => {
             <header className="flex items-center justify-between mb-4">
               <h2 className="font-serif text-2xl">{selected.title}</h2>
               <div className="flex gap-2">
-                <Button variant="primary" onClick={save}>Save</Button>
-                <Button variant="danger" onClick={remove}>Delete</Button>
+                <Button variant="primary" onClick={save}>
+                  Save
+                </Button>
+                <Button variant="danger" onClick={remove}>
+                  Delete
+                </Button>
               </div>
             </header>
             <Card className="p-5 flex-1 flex flex-col gap-4 overflow-y-auto">
@@ -107,8 +131,16 @@ export const World: React.FC = () => {
                 </div>
                 <div>
                   <Label>Category</Label>
-                  <select className="w-full bg-ink-850 border border-ink-700 rounded-md px-3 py-2 text-sm" value={selected.category} onChange={(e) => setSelected({ ...selected, category: e.target.value })}>
-                    {WORLD_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <select
+                    className="w-full bg-ink-850 border border-ink-700 rounded-md px-3 py-2 text-sm"
+                    value={selected.category}
+                    onChange={(e) => setSelected({ ...selected, category: e.target.value })}
+                  >
+                    {WORLD_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -122,20 +154,37 @@ export const World: React.FC = () => {
             </Card>
           </>
         ) : (
-          <Empty title="Select an entry">Or create the first: a place, a faction, a rule of your world. The AI weaves them into scenes when they're relevant.</Empty>
+          <Empty title="Select an entry">
+            Or create the first: a place, a faction, a rule of your world. The AI weaves them into scenes when they're relevant.
+          </Empty>
         )}
       </section>
 
       <Modal open={creating} onClose={() => setCreating(false)} title="New world entry">
         <Label>Category</Label>
-        <select className="w-full bg-ink-850 border border-ink-700 rounded-md px-3 py-2 text-sm mb-3" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-          {WORLD_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        <select
+          className="w-full bg-ink-850 border border-ink-700 rounded-md px-3 py-2 text-sm mb-3"
+          value={form.category}
+          onChange={(e) => setForm({ ...form, category: e.target.value })}
+        >
+          {WORLD_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
         </select>
         <Label>Title</Label>
-        <Input autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && create()} />
+        <Input
+          autoFocus
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+        />
         <div className="flex justify-end gap-2 mt-4">
           <Button onClick={() => setCreating(false)}>Cancel</Button>
-          <Button variant="primary" onClick={create}>Create</Button>
+          <Button variant="primary" onClick={create}>
+            Create
+          </Button>
         </div>
       </Modal>
     </div>

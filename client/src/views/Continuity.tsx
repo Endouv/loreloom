@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api, type ChapterMeta } from "../api.js";
+import { api, errorMessage, type ChapterMeta } from "../api.js";
 import { api as apiBase } from "../api.js";
 import { Button, Card, Empty, Select, Spinner, Tag, useAppState } from "../ui.js";
 
@@ -23,7 +23,10 @@ export const Continuity: React.FC = () => {
 
   useEffect(() => {
     if (!activeNovelId) return;
-    api.get<ChapterMeta[]>(`/novels/${activeNovelId}/chapters`).then(setChapters).catch(() => {});
+    api
+      .get<ChapterMeta[]>(`/novels/${activeNovelId}/chapters`)
+      .then(setChapters)
+      .catch(() => {});
     setIssues(null);
     setScope("");
   }, [activeNovelId]);
@@ -41,14 +44,19 @@ export const Continuity: React.FC = () => {
       });
       setIssues(data.issues);
       setModel(data.model);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errorMessage(e));
     } finally {
       setRunning(false);
     }
   };
 
-  if (!activeNovelId) return <Empty title="No novel selected">Pick a project in <b>My Novels</b> first.</Empty>;
+  if (!activeNovelId)
+    return (
+      <Empty title="No novel selected">
+        Pick a project in <b>My Novels</b> first.
+      </Empty>
+    );
 
   const toneFor = (t: string): "red" | "amber" | "blue" => {
     if (/timeline|chronolog/i.test(t)) return "amber";
@@ -61,7 +69,10 @@ export const Continuity: React.FC = () => {
       <header className="flex items-center justify-between mb-2">
         <div>
           <h1 className="font-serif text-2xl">Continuity Checker</h1>
-          <p className="text-xs text-ink-400 mt-1">Compares your chapters against confirmed story memory, character records, world rules and the timeline. Never rewrites anything — every issue needs your decision.</p>
+          <p className="text-xs text-ink-400 mt-1">
+            Compares your chapters against confirmed story memory, character records, world rules and the timeline. Never rewrites anything
+            — every issue needs your decision.
+          </p>
         </div>
       </header>
 
@@ -69,11 +80,19 @@ export const Continuity: React.FC = () => {
         <Select value={scope} onChange={(e) => setScope(e.target.value)} className="flex-1">
           <option value="">Whole manuscript (may take a while)</option>
           {chapters.map((c) => (
-            <option key={c.id} value={c.id}>Chapter: {c.title}</option>
+            <option key={c.id} value={c.id}>
+              Chapter: {c.title}
+            </option>
           ))}
         </Select>
         <Button variant="primary" onClick={run} disabled={running}>
-          {running ? <><Spinner /> Checking…</> : "Run check"}
+          {running ? (
+            <>
+              <Spinner /> Checking…
+            </>
+          ) : (
+            "Run check"
+          )}
         </Button>
       </Card>
       {error && <div className="mb-3 px-3 py-2 bg-red-950/40 text-red-300 text-sm rounded">{error}</div>}
@@ -85,7 +104,10 @@ export const Continuity: React.FC = () => {
           </p>
         )}
         {issues?.length === 0 && (
-          <Card className="p-6 text-center text-sm text-ink-300">No inconsistencies found in the checked scope. This checks against your canon memory — the more you approve in Story Memory, the sharper it gets.</Card>
+          <Card className="p-6 text-center text-sm text-ink-300">
+            No inconsistencies found in the checked scope. This checks against your canon memory — the more you approve in Story Memory, the
+            sharper it gets.
+          </Card>
         )}
         {issues?.map((issue, i) => (
           <Card key={i} className="p-4">
@@ -93,13 +115,21 @@ export const Continuity: React.FC = () => {
               <Tag tone={toneFor(issue.type)}>{issue.type}</Tag>
               <span className="text-[11px] text-ink-400">{issue.location}</span>
             </div>
-            <p className="text-sm text-ink-300"><b>Problem:</b> {issue.why}</p>
-            {issue.evidence && <p className="text-xs text-ink-400 mt-1"><b>Evidence:</b> {issue.evidence}</p>}
+            <p className="text-sm text-ink-300">
+              <b>Problem:</b> {issue.why}
+            </p>
+            {issue.evidence && (
+              <p className="text-xs text-ink-400 mt-1">
+                <b>Evidence:</b> {issue.evidence}
+              </p>
+            )}
             {issue.options?.length > 0 && (
               <div className="mt-2">
                 <p className="text-[11px] uppercase tracking-wider text-ink-400 mb-1">Possible fixes</p>
                 <ul className="text-sm text-ink-300 list-disc pl-5">
-                  {issue.options.map((o, j) => <li key={j}>{o}</li>)}
+                  {issue.options.map((o, j) => (
+                    <li key={j}>{o}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -107,7 +137,8 @@ export const Continuity: React.FC = () => {
         ))}
         {!issues && !running && (
           <Empty title="Ready when you are">
-            Run a check per chapter after finishing a draft pass, or over the whole manuscript before a final lap. Results are advisory: nothing is changed without you.
+            Run a check per chapter after finishing a draft pass, or over the whole manuscript before a final lap. Results are advisory:
+            nothing is changed without you.
           </Empty>
         )}
       </div>

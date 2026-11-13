@@ -47,17 +47,24 @@ aiRouter.post(
       const { model } = await resolveTierModel("main");
       return { model, messages, novelId: env.novelId, chapterId: env.chapterId };
     });
-  })
+  }),
 );
 
 aiRouter.post(
   "/assistant/chat",
   asyncHandler(async (req, res) => {
-    const { novelId, messages, chapterText } = req.body ?? {};
+    const { novelId, messages } = req.body ?? {};
     if (!Number(novelId)) badRequest("novelId required");
-    const history: { role: "user" | "assistant"; content: string }[] = Array.isArray(messages)
-      ? messages
-          .filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.length < 12000)
+    type ChatTurn = { role: "user" | "assistant"; content: string };
+    // The body is untyped JSON, so every field is validated before use.
+    const history: ChatTurn[] = Array.isArray(messages)
+      ? (messages as unknown[])
+          .filter((m): m is ChatTurn => {
+            const turn = m as { role?: unknown; content?: unknown };
+            return (
+              (turn?.role === "user" || turn?.role === "assistant") && typeof turn?.content === "string" && turn.content.length < 12000
+            );
+          })
           .slice(-12)
       : [];
     await streamTask(req, res, "assistant", "main", async () => {
@@ -71,7 +78,7 @@ aiRouter.post(
       const { model } = await resolveTierModel("main");
       return { model, messages: msgs, novelId: novelIdNum, numCtx: numCtxTokens() ?? undefined };
     });
-  })
+  }),
 );
 
 aiRouter.post(
@@ -92,7 +99,7 @@ aiRouter.post(
       const { model } = await resolveTierModel("main");
       return { model, messages: msgs, novelId: novelIdNum, temperature: 0.95 };
     });
-  })
+  }),
 );
 
 // ------------------------------ AI editor (JSON) ----------------------------
@@ -108,7 +115,7 @@ aiRouter.post(
     // instead, so the author can select a smaller range deliberately.
     if (text.length > 16000) {
       badRequest(
-        `That passage is ${text.length.toLocaleString()} characters. One editing pass handles up to 16,000 — select a smaller range and try again.`
+        `That passage is ${text.length.toLocaleString()} characters. One editing pass handles up to 16,000 — select a smaller range and try again.`,
       );
     }
     const editModes: EditMode[] = Array.isArray(modes) ? modes.filter((m: string) => (EDIT_MODES as readonly string[]).includes(m)) : [];
@@ -122,7 +129,7 @@ aiRouter.post(
       logActivity(Number(novelId), "editor", null, "main", Date.now() - started, false, (err as Error).message);
       throw err;
     }
-  })
+  }),
 );
 
 // ------------------------------ Analysis -----------------------------------
@@ -132,8 +139,7 @@ aiRouter.post(
   asyncHandler(async (req, res) => {
     const { chapterId } = req.body ?? {};
     const chapter = db.prepare("SELECT id, novel_id, body FROM chapters WHERE id = ?").get(Number(chapterId)) as
-      | { id: number; novel_id: number; body: string }
-      | undefined;
+      { id: number; novel_id: number; body: string } | undefined;
     if (!chapter) notFound("Chapter not found");
     const started = Date.now();
     const summary = await summarizeChapter(chapter.id);
@@ -141,14 +147,14 @@ aiRouter.post(
     let inserted: number[] = [];
     if (suggestions.length) {
       const ins = db.prepare(
-        "INSERT INTO memory_items (novel_id, text, bucket, source, chapter_id, category) VALUES (?, ?, 'ai_suggestion', 'ai', ?, 'chapter_fact')"
+        "INSERT INTO memory_items (novel_id, text, bucket, source, chapter_id, category) VALUES (?, ?, 'ai_suggestion', 'ai', ?, 'chapter_fact')",
       );
       inserted = suggestions.map((s) => Number(ins.run(chapter.novel_id, s, chapter.id).lastInsertRowid));
     }
     logActivity(chapter.novel_id, "analyze-chapter", null, "light", Date.now() - started, true, `${inserted.length} suggestions`);
     await ensureIndex(chapter.novel_id, ["chapter", "memory"]);
     res.json({ summary, suggestions: inserted.map((id) => ({ id, text: suggestions[inserted.indexOf(id)] })) });
-  })
+  }),
 );
 
 aiRouter.post(
@@ -165,7 +171,7 @@ aiRouter.post(
       logActivity(Number(novelId), "continuity", null, "main", Date.now() - started, false, (err as Error).message);
       throw err;
     }
-  })
+  }),
 );
 
 // ------------------------------ Memory search -------------------------------
@@ -176,9 +182,14 @@ aiRouter.post(
     const { novelId, query, kinds } = req.body ?? {};
     if (!Number(novelId) || !query) badRequest("novelId and query required");
     await ensureIndex(Number(novelId));
-    const results = await semanticSearch(Number(novelId), Array.isArray(kinds) && kinds.length ? kinds : ["memory", "character", "world"], String(query), 12);
+    const results = await semanticSearch(
+      Number(novelId),
+      Array.isArray(kinds) && kinds.length ? kinds : ["memory", "character", "world"],
+      String(query),
+      12,
+    );
     res.json({ results });
-  })
+  }),
 );
 
 aiRouter.post(
@@ -188,7 +199,7 @@ aiRouter.post(
     if (!Number(novelId)) badRequest("novelId required");
     const counts = await ensureIndex(Number(novelId));
     res.json({ ok: true, counts });
-  })
+  }),
 );
 
 aiRouter.post(
@@ -198,7 +209,7 @@ aiRouter.post(
     if (!Number(novelId)) badRequest("novelId required");
     const overview = assembleOverview(Number(novelId));
     res.json(overview);
-  })
+  }),
 );
 
 // ------------------------------ Generated output drafts ---------------------
@@ -213,11 +224,11 @@ aiRouter.get(
       .prepare(
         chapterId
           ? "SELECT id, novel_id AS novelId, chapter_id AS chapterId, task, text, created_at AS createdAt, updated_at AS updatedAt FROM ai_drafts WHERE novel_id = ? AND chapter_id = ? ORDER BY id DESC LIMIT 20"
-          : "SELECT id, novel_id AS novelId, chapter_id AS chapterId, task, text, created_at AS createdAt, updated_at AS updatedAt FROM ai_drafts WHERE novel_id = ? ORDER BY id DESC LIMIT 20"
+          : "SELECT id, novel_id AS novelId, chapter_id AS chapterId, task, text, created_at AS createdAt, updated_at AS updatedAt FROM ai_drafts WHERE novel_id = ? ORDER BY id DESC LIMIT 20",
       )
       .all(novelId, ...(chapterId ? [chapterId] : []));
     res.json(rows);
-  })
+  }),
 );
 
 aiRouter.delete(
@@ -226,7 +237,7 @@ aiRouter.delete(
     const info = db.prepare("DELETE FROM ai_drafts WHERE id = ? AND novel_id = ?").run(Number(req.params.id), Number(req.params.novelId));
     if (!info.changes) notFound("Draft not found");
     res.json({ ok: true });
-  })
+  }),
 );
 
 // ------------------------------ Character reading ---------------------------
@@ -239,13 +250,21 @@ aiRouter.post(
     const started = Date.now();
     try {
       const out = await analyzeChapterCharacters(Number(chapterId), force === true);
-      logActivity(Number(chapterId), "characters:manual-scan", out.model ?? null, "light", Date.now() - started, !out.skipped, out.reason ?? "");
+      logActivity(
+        Number(chapterId),
+        "characters:manual-scan",
+        out.model ?? null,
+        "light",
+        Date.now() - started,
+        !out.skipped,
+        out.reason ?? "",
+      );
       res.json(out);
     } catch (err) {
       logActivity(null, "characters:manual-scan", null, "light", Date.now() - started, false, (err as Error).message);
       throw err;
     }
-  })
+  }),
 );
 
 aiRouter.post(
@@ -265,5 +284,5 @@ aiRouter.post(
       }
     }
     res.json({ ok: true, analyzed, skipped });
-  })
+  }),
 );

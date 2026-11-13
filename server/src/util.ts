@@ -7,10 +7,15 @@ export function countWords(text: string): number {
   return matches ? matches.length : 0;
 }
 
-export function parseJson(value: string | null | undefined, fallback: unknown): any {
+/**
+ * Parse a JSON column. The caller names the expected shape, which keeps the
+ * parsed value usable without `any`: a malformed or empty column yields the
+ * fallback, so every reader gets a well-typed value.
+ */
+export function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (value == null || value === "") return fallback;
   try {
-    return JSON.parse(value);
+    return JSON.parse(value) as T;
   } catch {
     return fallback;
   }

@@ -14,8 +14,14 @@ export const Timeline: React.FC = () => {
 
   const load = useCallback(() => {
     if (!activeNovelId) return;
-    api.get<TimelineEvent[]>(`/novels/${activeNovelId}/timeline`).then(setEvents).catch((e) => setError(e.message));
-    api.get<Character[]>(`/novels/${activeNovelId}/characters`).then(setCharacters).catch(() => {});
+    api
+      .get<TimelineEvent[]>(`/novels/${activeNovelId}/timeline`)
+      .then(setEvents)
+      .catch((e) => setError(e.message));
+    api
+      .get<Character[]>(`/novels/${activeNovelId}/characters`)
+      .then(setCharacters)
+      .catch(() => {});
   }, [activeNovelId]);
   useEffect(load, [load]);
   useEffect(() => setEditing(null), [activeNovelId]);
@@ -74,7 +80,12 @@ export const Timeline: React.FC = () => {
     load();
   };
 
-  if (!activeNovelId) return <Empty title="No novel selected">Pick a project in <b>My Novels</b> first.</Empty>;
+  if (!activeNovelId)
+    return (
+      <Empty title="No novel selected">
+        Pick a project in <b>My Novels</b> first.
+      </Empty>
+    );
 
   // Detect gaps > 25 on the numeric story-time scale between consecutive events.
   const gaps: number[] = [];
@@ -87,15 +98,21 @@ export const Timeline: React.FC = () => {
       <header className="flex items-center justify-between mb-4">
         <div>
           <h1 className="font-serif text-2xl">Timeline</h1>
-          <p className="text-xs text-ink-400 mt-1">Story-time order (▲▼ buttons move events). Events are manual — the AI only proposes, you place them.</p>
+          <p className="text-xs text-ink-400 mt-1">
+            Story-time order (▲▼ buttons move events). Events are manual — the AI only proposes, you place them.
+          </p>
         </div>
-        <Button variant="primary" onClick={createBlank}>+ Add event</Button>
+        <Button variant="primary" onClick={createBlank}>
+          + Add event
+        </Button>
       </header>
       {error && <div className="mb-3 px-3 py-2 bg-red-950/40 text-red-300 text-sm rounded">{error}</div>}
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {ordered.length === 0 ? (
-          <Empty title="No events yet">Add the pivotal moments of your story in order: births of rivalries, deaths, discoveries, chapters' key beats.</Empty>
+          <Empty title="No events yet">
+            Add the pivotal moments of your story in order: births of rivalries, deaths, discoveries, chapters' key beats.
+          </Empty>
         ) : (
           <div className="relative pl-6">
             <div className="absolute left-2 top-0 bottom-0 w-px bg-ink-700" />
@@ -110,7 +127,13 @@ export const Timeline: React.FC = () => {
                 <div className="relative group py-2 flex items-center gap-3">
                   <span className="absolute -left-1.5 w-3 h-3 rounded-full bg-loom-500/80 ring-2 ring-ink-950" />
                   <div className="ml-4 flex-1">
-                    <Card className="p-3 hover:border-loom-600/60 cursor-pointer" onClick={() => { setCreating(false); setEditing(e); }}>
+                    <Card
+                      className="p-3 hover:border-loom-600/60 cursor-pointer"
+                      onClick={() => {
+                        setCreating(false);
+                        setEditing(e);
+                      }}
+                    >
                       <div className="flex items-center gap-2">
                         {e.storyDateLabel && <span className="text-[11px] text-loom-500 font-mono">{e.storyDateLabel}</span>}
                         <span className="text-[10px] text-ink-700">{e.kind}</span>
@@ -122,15 +145,23 @@ export const Timeline: React.FC = () => {
                         <div className="flex gap-1 mt-1.5 flex-wrap">
                           {e.characterIds.map((cid) => {
                             const c = characters.find((x) => x.id === cid);
-                            return <span key={cid} className="text-[10px] text-sky-300 border border-sky-800/60 rounded px-1.5">{c?.name ?? `#${cid}`}</span>;
+                            return (
+                              <span key={cid} className="text-[10px] text-sky-300 border border-sky-800/60 rounded px-1.5">
+                                {c?.name ?? `#${cid}`}
+                              </span>
+                            );
                           })}
                         </div>
                       )}
                     </Card>
                   </div>
                   <div className="flex flex-col opacity-40 group-hover:opacity-100">
-                    <button className="text-ink-400 hover:text-ink-200 text-xs" onClick={() => shiftOrder(e, -1)}>▲</button>
-                    <button className="text-ink-400 hover:text-ink-200 text-xs" onClick={() => shiftOrder(e, 1)}>▼</button>
+                    <button className="text-ink-400 hover:text-ink-200 text-xs" onClick={() => shiftOrder(e, -1)}>
+                      ▲
+                    </button>
+                    <button className="text-ink-400 hover:text-ink-200 text-xs" onClick={() => shiftOrder(e, 1)}>
+                      ▼
+                    </button>
                   </div>
                 </div>
               </React.Fragment>
@@ -149,11 +180,20 @@ export const Timeline: React.FC = () => {
               </div>
               <div>
                 <Label>Story date label</Label>
-                <Input value={editing.storyDateLabel} onChange={(ev) => setEditing({ ...editing, storyDateLabel: ev.target.value })} placeholder="Year 3, midwinter" />
+                <Input
+                  value={editing.storyDateLabel}
+                  onChange={(ev) => setEditing({ ...editing, storyDateLabel: ev.target.value })}
+                  placeholder="Year 3, midwinter"
+                />
               </div>
               <div>
                 <Label>Story-time order (number)</Label>
-                <Input type="number" step="any" value={editing.storyDateOrder} onChange={(ev) => setEditing({ ...editing, storyDateOrder: Number(ev.target.value) })} />
+                <Input
+                  type="number"
+                  step="any"
+                  value={editing.storyDateOrder}
+                  onChange={(ev) => setEditing({ ...editing, storyDateOrder: Number(ev.target.value) })}
+                />
               </div>
             </div>
             <div>
@@ -164,12 +204,20 @@ export const Timeline: React.FC = () => {
               <div>
                 <Label>Kind</Label>
                 <Select value={editing.kind} onChange={(ev) => setEditing({ ...editing, kind: ev.target.value })}>
-                  {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  {KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
                 </Select>
               </div>
               <div>
                 <Label>Link to chapter number (optional)</Label>
-                <Input type="number" value={editing.chapterId ?? ""} onChange={(ev) => setEditing({ ...editing, chapterId: ev.target.value ? Number(ev.target.value) : null })} />
+                <Input
+                  type="number"
+                  value={editing.chapterId ?? ""}
+                  onChange={(ev) => setEditing({ ...editing, chapterId: ev.target.value ? Number(ev.target.value) : null })}
+                />
               </div>
             </div>
             <div>
@@ -180,7 +228,12 @@ export const Timeline: React.FC = () => {
                   return (
                     <button
                       key={c.id}
-                      onClick={() => setEditing({ ...editing, characterIds: on ? editing.characterIds.filter((x) => x !== c.id) : [...editing.characterIds, c.id] })}
+                      onClick={() =>
+                        setEditing({
+                          ...editing,
+                          characterIds: on ? editing.characterIds.filter((x) => x !== c.id) : [...editing.characterIds, c.id],
+                        })
+                      }
                       className={`text-xs px-2 py-1 rounded border ${on ? "border-loom-500 text-loom-500" : "border-ink-750 text-ink-400"}`}
                     >
                       {c.name}
@@ -194,9 +247,13 @@ export const Timeline: React.FC = () => {
               {!editing.id ? (
                 <Button onClick={() => setEditing(null)}>Cancel</Button>
               ) : (
-                <Button variant="danger" onClick={remove}>Delete event</Button>
+                <Button variant="danger" onClick={remove}>
+                  Delete event
+                </Button>
               )}
-              <Button variant="primary" onClick={save} disabled={!editing.title.trim()}>{editing.id ? "Save" : "Create event"}</Button>
+              <Button variant="primary" onClick={save} disabled={!editing.title.trim()}>
+                {editing.id ? "Save" : "Create event"}
+              </Button>
             </div>
           </div>
         )}

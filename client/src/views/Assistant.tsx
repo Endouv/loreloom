@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { api, countWords, streamSse } from "../api.js";
+import { api, countWords, streamSse, type ProjectOverview } from "../api.js";
 import { Button, Card, Empty, Input, Label, Tag, TextArea, useAppState } from "../ui.js";
 
 interface Msg {
@@ -19,7 +19,7 @@ const BRAINSTORM_CATEGORIES = [
 ];
 
 export const Assistant: React.FC = () => {
-  const { activeNovelId, prefs } = useAppState();
+  const { activeNovelId } = useAppState();
   const [tab, setTab] = useState<"chat" | "brainstorm">("chat");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
@@ -30,13 +30,13 @@ export const Assistant: React.FC = () => {
   const [bsTopic, setBsTopic] = useState("");
   const [bsDeep, setBsDeep] = useState(true);
   const [bsOutput, setBsOutput] = useState("");
-  const [overview, setOverview] = useState<{ text: string; stats: any } | null>(null);
+  const [overview, setOverview] = useState<ProjectOverview | null>(null);
   const [showOverview, setShowOverview] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadOverview = async () => {
-    const o = await api.post<{ text: string; stats: any }>("/ai/project-overview", { novelId: activeNovelId });
+    const o = await api.post<ProjectOverview>("/ai/project-overview", { novelId: activeNovelId });
     setOverview(o);
     setShowOverview(true);
   };
@@ -46,7 +46,11 @@ export const Assistant: React.FC = () => {
   }, [messages]);
 
   if (!activeNovelId) {
-    return <Empty title="No novel selected">Choose a project in <b>My Novels</b> first — the assistant reads only that novel's memory.</Empty>;
+    return (
+      <Empty title="No novel selected">
+        Choose a project in <b>My Novels</b> first — the assistant reads only that novel's memory.
+      </Empty>
+    );
   }
 
   const send = async () => {
@@ -64,7 +68,7 @@ export const Assistant: React.FC = () => {
         "/ai/assistant/chat",
         { novelId: activeNovelId, messages: history },
         {
-          onStart: (e) => setModel(e.model),
+          onStart: (e) => setModel(e.model ?? ""),
           onDelta: (t) =>
             setMessages((ms) => {
               const copy = [...ms];
@@ -76,7 +80,7 @@ export const Assistant: React.FC = () => {
             if (type === "cancelled") setMessages((ms) => (ms[ms.length - 1].content ? ms : ms.slice(0, -1)));
           },
         },
-        controller.signal
+        controller.signal,
       );
     } finally {
       setBusy(false);
@@ -96,13 +100,13 @@ export const Assistant: React.FC = () => {
         "/ai/brainstorm",
         { novelId: activeNovelId, category: bsCategory, topic: bsTopic, depth: bsDeep ? "deep" : "quick" },
         {
-          onStart: (e) => setModel(e.model),
+          onStart: (e) => setModel(e.model ?? ""),
           onDelta: (t) => setBsOutput((o) => o + t),
           onEvent: (type, e) => {
             if (type === "error") setError(e.message || "Brainstorm failed.");
           },
         },
-        controller.signal
+        controller.signal,
       );
     } finally {
       setBusy(false);
@@ -121,20 +125,33 @@ export const Assistant: React.FC = () => {
       <header className="flex items-center justify-between mb-4">
         <h1 className="font-serif text-2xl">AI Assistant</h1>
         <div className="flex gap-2">
-          <Button onClick={() => setTab("chat")} className={tab === "chat" ? "text-loom-500 border-loom-500" : ""}>Chat</Button>
-          <Button onClick={() => setTab("brainstorm")} className={tab === "brainstorm" ? "text-loom-500 border-loom-500" : ""}>Brainstorm</Button>
-          <Button variant="subtle" onClick={loadOverview}>What the AI sees</Button>
+          <Button onClick={() => setTab("chat")} className={tab === "chat" ? "text-loom-500 border-loom-500" : ""}>
+            Chat
+          </Button>
+          <Button onClick={() => setTab("brainstorm")} className={tab === "brainstorm" ? "text-loom-500 border-loom-500" : ""}>
+            Brainstorm
+          </Button>
+          <Button variant="subtle" onClick={loadOverview}>
+            What the AI sees
+          </Button>
         </div>
       </header>
-      {model && <p className="text-[11px] text-ink-400 mb-2">Model: {model} · local Ollama · sees your full project: story, cast, world, timeline and canon</p>}
+      {model && (
+        <p className="text-[11px] text-ink-400 mb-2">
+          Model: {model} · local Ollama · sees your full project: story, cast, world, timeline and canon
+        </p>
+      )}
       {error && <div className="mb-3 px-3 py-2 bg-red-950/40 text-red-300 text-sm rounded">{error}</div>}
       {showOverview && overview && (
         <Card className="mb-3 p-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs uppercase tracking-wider text-ink-400">
-              Full project view ({overview.stats.chapters} chapters · {overview.stats.characters} characters · {overview.stats.world} world entries · {overview.stats.memories} memory items · {overview.stats.chars.toLocaleString()} chars)
+              Full project view ({overview.stats.chapters} chapters · {overview.stats.characters} characters · {overview.stats.world} world
+              entries · {overview.stats.memories} memory items · {overview.stats.chars.toLocaleString()} chars)
             </h3>
-            <Button variant="subtle" onClick={() => setShowOverview(false)}>×</Button>
+            <Button variant="subtle" onClick={() => setShowOverview(false)}>
+              ×
+            </Button>
           </div>
           <pre className="text-[11px] whitespace-pre-wrap max-h-72 overflow-y-auto text-ink-300 font-mono">{overview.text}</pre>
         </Card>
@@ -145,14 +162,16 @@ export const Assistant: React.FC = () => {
           <div className="flex-1 overflow-y-auto flex flex-col gap-3 mb-4 pr-1">
             {messages.length === 0 && (
               <Card className="p-4 text-sm text-ink-400">
-                Ask anything about your story: “What's a stronger motivation for Vayel?”, “Recap where the investigation stands”,
-                “Which characters know about the vault — and when did each find out?”. The assistant reads your entire project —
-                every chapter, the full cast with their knowledge, worldbuilding, timeline and canon — directly from the database.
+                Ask anything about your story: “What's a stronger motivation for Vayel?”, “Recap where the investigation stands”, “Which
+                characters know about the vault — and when did each find out?”. The assistant reads your entire project — every chapter, the
+                full cast with their knowledge, worldbuilding, timeline and canon — directly from the database.
               </Card>
             )}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap ${m.role === "user" ? "bg-loom-500/15 border border-loom-600/40" : "bg-ink-900 border border-ink-800"}`}>
+                <div
+                  className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap ${m.role === "user" ? "bg-loom-500/15 border border-loom-600/40" : "bg-ink-900 border border-ink-800"}`}
+                >
                   {m.content || (busy && i === messages.length - 1 ? <span className="text-ink-400">writing…</span> : "")}
                 </div>
               </div>
@@ -175,9 +194,13 @@ export const Assistant: React.FC = () => {
               disabled={busy}
             />
             {busy ? (
-              <Button variant="danger" onClick={() => abortRef.current?.abort()}>Stop</Button>
+              <Button variant="danger" onClick={() => abortRef.current?.abort()}>
+                Stop
+              </Button>
             ) : (
-              <Button variant="primary" onClick={send} disabled={!draft.trim()}>Send</Button>
+              <Button variant="primary" onClick={send} disabled={!draft.trim()}>
+                Send
+              </Button>
             )}
           </div>
         </div>
@@ -195,14 +218,23 @@ export const Assistant: React.FC = () => {
             ))}
           </div>
           <div className="flex gap-2 items-center mb-3">
-            <Input className="flex-1" value={bsTopic} onChange={(e) => setBsTopic(e.target.value)} placeholder="Optional prompt: e.g. secrets the archive could hide" />
+            <Input
+              className="flex-1"
+              value={bsTopic}
+              onChange={(e) => setBsTopic(e.target.value)}
+              placeholder="Optional prompt: e.g. secrets the archive could hide"
+            />
             <label className="flex items-center gap-1 text-xs text-ink-400">
               <input type="checkbox" checked={bsDeep} onChange={() => setBsDeep(!bsDeep)} /> deep
             </label>
             {busy ? (
-              <Button variant="danger" onClick={() => abortRef.current?.abort()}>Stop</Button>
+              <Button variant="danger" onClick={() => abortRef.current?.abort()}>
+                Stop
+              </Button>
             ) : (
-              <Button variant="primary" onClick={brainstorm}>Brainstorm</Button>
+              <Button variant="primary" onClick={brainstorm}>
+                Brainstorm
+              </Button>
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -211,8 +243,12 @@ export const Assistant: React.FC = () => {
                 <div className="prose-stream text-sm whitespace-pre-wrap leading-relaxed">{bsOutput}</div>
                 {!busy && (
                   <div className="flex gap-2 mt-3">
-                    <Button variant="primary" onClick={() => saveIdea(bsOutput)}>Save to Temporary Notes</Button>
-                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(bsOutput)}>Copy</Button>
+                    <Button variant="primary" onClick={() => saveIdea(bsOutput)}>
+                      Save to Temporary Notes
+                    </Button>
+                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(bsOutput)}>
+                      Copy
+                    </Button>
                   </div>
                 )}
               </Card>

@@ -5,8 +5,74 @@
  */
 import { db } from "../db/database.js";
 import { parseJson } from "../util.js";
+import { readPrefs } from "../routes/misc.js";
 import { semanticSearch, ensureIndex } from "../ollama/embeddings.js";
 import type { ChatMessage } from "../ollama/client.js";
+
+// Row shapes for the columns these queries actually read. All of them are
+// nullable at the SQLite level, so the readers handle empty values.
+interface ContextHitRow {
+  id: number;
+  text?: string | null;
+  bucket?: string | null;
+  name?: string | null;
+  personality?: string | null;
+  story_status?: string | null;
+  background?: string | null;
+  title?: string | null;
+  category?: string | null;
+  body?: string | null;
+}
+
+interface OverviewNovelRow {
+  title: string;
+  genre: string | null;
+  status: string;
+  target_words: number | null;
+  synopsis: string | null;
+  tags: string | null;
+}
+
+interface OverviewCharacterRow {
+  id: number;
+  name: string;
+  aliases: string | null;
+  personality: string | null;
+  appearance: string | null;
+  background: string | null;
+  motivations: string | null;
+  strengths: string | null;
+  weaknesses: string | null;
+  story_status: string | null;
+  dev_notes: string | null;
+}
+
+interface OverviewChapterRow {
+  title: string;
+  status: string;
+  word_count: number;
+  summary: string | null;
+  body: string | null;
+}
+
+interface OverviewWorldRow {
+  title: string;
+  category: string;
+  body: string | null;
+}
+
+interface OverviewTimelineRow {
+  title: string;
+  description: string | null;
+  story_date_label: string | null;
+}
+
+interface OverviewLinkRow {
+  kind: string;
+  certainty: string;
+  from_character_id: number;
+  to_character_id: number;
+}
 
 export interface AssembledContext {
   canon: string[];
@@ -19,9 +85,7 @@ export interface AssembledContext {
 }
 
 export function readStyle(): { language: string; style: string; creativeFreedom: string } {
-  const row = db.prepare("SELECT json FROM preferences WHERE id = 1").get() as { json: string };
-  const prefs = parseJson(row.json, {});
-  const writing = prefs.writing ?? {};
+  const writing = readPrefs().writing;
   return {
     language: typeof writing.language === "string" ? writing.language : "English",
     style: typeof writing.style === "string" && writing.style.trim() ? writing.style : "clear literary prose, natural dialogue",
@@ -30,12 +94,11 @@ export function readStyle(): { language: string; style: string; creativeFreedom:
 }
 
 export async function assembleContext(novelId: number, query: string, opts?: { rebuildIndex?: boolean }): Promise<AssembledContext> {
-  const prefsRow = db.prepare("SELECT json FROM preferences WHERE id = 1").get() as { json: string };
-  const prefs = parseJson(prefsRow.json, {});
-  const budget = Number(prefs.memory?.contextBudgetChars) || 6000;
-  const k = Number(prefs.memory?.retrievalChunks) || 8;
+  const prefs = readPrefs();
+  const budget = Number(prefs.memory.contextBudgetChars) || 6000;
+  const k = Number(prefs.memory.retrievalChunks) || 8;
 
-  if (opts?.rebuildIndex || prefs.memory?.autoSuggestFromChapters !== false) {
+  if (opts?.rebuildIndex || prefs.memory.autoSuggestFromChapters !== false) {
     try {
       await ensureIndex(novelId);
     } catch (err) {
@@ -62,14 +125,17 @@ export async function assembleContext(novelId: number, query: string, opts?: { r
   for (const hit of hits) {
     if (!hit.itemId || used >= budget) continue;
     const table = hit.kind === "memory" ? "memory_items" : hit.kind === "character" ? "characters" : "world_entries";
-    const row = db.prepare(`SELECT * FROM ${table} WHERE id = ? AND novel_id = ?`).get(hit.itemId, novelId) as Record<string, any> | undefined;
+    const row = db.prepare(`SELECT * FROM ${table} WHERE id = ? AND novel_id = ?`).get(hit.itemId, novelId) as ContextHitRow | undefined;
     if (!row) continue;
     const line =
       hit.kind === "memory"
-        ? row.text
+        ? (row.text ?? "")
         : hit.kind === "character"
-          ? `Character ${row.name}: personality ${row.personality || "unspecified"}, appears as ${row.story_status || "active"}. ${row.background || ""}`.slice(0, 700)
-          : `World — ${row.title} (${row.category}): ${row.body}`.slice(0, 700);
+          ? `Character ${row.name ?? "?"}: personality ${row.personality || "unspecified"}, appears as ${row.story_status || "active"}. ${row.background || ""}`.slice(
+              0,
+              700,
+            )
+          : `World — ${row.title ?? ""} (${row.category ?? ""}): ${row.body ?? ""}`.slice(0, 700);
     const remains = budget - used;
     if (line.length > remains) continue;
     used += line.length;
@@ -87,7 +153,9 @@ export async function assembleContext(novelId: number, query: string, opts?: { r
   const events = db
     .prepare("SELECT title, description, story_date_label FROM timeline_events WHERE novel_id = ? ORDER BY story_date_order DESC LIMIT 6")
     .all(novelId) as { title: string; description: string; story_date_label: string }[];
-  ctx.timeline = events.map((e) => `— ${e.story_date_label || "date unknown"}: ${e.title}${e.description ? `. ${e.description}` : ""}`.slice(0, 250));
+  ctx.timeline = events.map((e) =>
+    `— ${e.story_date_label || "date unknown"}: ${e.title}${e.description ? `. ${e.description}` : ""}`.slice(0, 250),
+  );
   ctx.indexed = ctx.canon.length + ctx.characters.length + ctx.world.length > 0 || hits.length > 0;
   return ctx;
 }
@@ -122,13 +190,17 @@ export interface ProjectOverview {
   stats: { novels: number; chapters: number; characters: number; world: number; memories: number; chars: number };
 }
 
-const clean = (s: unknown, max = 1000): string => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+const clean = (s: unknown, max = 1000): string =>
+  String(s ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
 
 export function assembleOverview(novelId: number): ProjectOverview {
   const tokens = numCtxTokens() ?? 8192;
   // ~3 chars/token; leave room for the conversation history and the reply.
   let budget = Math.max(4000, Math.min(32000, Math.round(tokens * 2.5)));
-  const novel = db.prepare("SELECT * FROM novels WHERE id = ?").get(novelId) as Record<string, any> | undefined;
+  const novel = db.prepare("SELECT * FROM novels WHERE id = ?").get(novelId) as OverviewNovelRow | undefined;
   if (!novel) throw Object.assign(new Error("Novel not found"), { status: 404 });
 
   const parts: string[] = [];
@@ -149,12 +221,14 @@ export function assembleOverview(novelId: number): ProjectOverview {
       tags.length ? `Tags: ${tags.join(", ")}` : "",
     ]
       .filter(Boolean)
-      .join("\n")
+      .join("\n"),
   );
 
   // Story memory first: this is the author's own binding record.
   const memory = db
-    .prepare("SELECT text, bucket FROM memory_items WHERE novel_id = ? AND bucket IN ('canon','provisional','question') ORDER BY bucket, id")
+    .prepare(
+      "SELECT text, bucket FROM memory_items WHERE novel_id = ? AND bucket IN ('canon','provisional','question') ORDER BY bucket, id",
+    )
     .all(novelId) as { text: string; bucket: string }[];
   stats.memories = memory.length;
   const canon = memory.filter((m) => m.bucket === "canon");
@@ -170,7 +244,9 @@ export function assembleOverview(novelId: number): ProjectOverview {
   if (memoryBlock) push(memoryBlock);
 
   // Full cast, complete profiles + what each one knows.
-  const chars = db.prepare("SELECT * FROM characters WHERE novel_id = ? ORDER BY name COLLATE NOCASE").all(novelId) as Record<string, any>[];
+  const chars = db
+    .prepare("SELECT * FROM characters WHERE novel_id = ? ORDER BY name COLLATE NOCASE")
+    .all(novelId) as OverviewCharacterRow[];
   stats.characters = chars.length;
   if (chars.length) {
     const charBlocks = chars.map((c) => {
@@ -187,23 +263,20 @@ export function assembleOverview(novelId: number): ProjectOverview {
         c.dev_notes ? `development: ${clean(c.dev_notes, 600)}` : "",
       ].filter(Boolean);
       const knowledge = db
-        .prepare(
-          `SELECT kind, text FROM character_knowledge WHERE character_id = ? ORDER BY kind, id LIMIT 12`
-        )
+        .prepare(`SELECT kind, text FROM character_knowledge WHERE character_id = ? ORDER BY kind, id LIMIT 12`)
         .all(c.id) as { kind: string; text: string }[];
       const links = db
         .prepare(
-          `SELECT kind, certainty, from_character_id, to_character_id FROM character_links WHERE from_character_id = ? OR to_character_id = ?`
+          `SELECT kind, certainty, from_character_id, to_character_id FROM character_links WHERE from_character_id = ? OR to_character_id = ?`,
         )
-        .all(c.id, c.id);
-      const known = knowledge.length
-        ? `\n  knows: ${knowledge.map((k) => `(${k.kind}) ${clean(k.text, 200)}`).join("; ")}`
-        : "";
+        .all(c.id, c.id) as OverviewLinkRow[];
+      const known = knowledge.length ? `\n  knows: ${knowledge.map((k) => `(${k.kind}) ${clean(k.text, 200)}`).join("; ")}` : "";
       const rels = links.length
         ? `\n  relationships: ${links
-            .map((l: any) => {
+            .map((l) => {
               const other = l.from_character_id === c.id ? l.to_character_id : l.from_character_id;
-              const otherName = (db.prepare("SELECT name FROM characters WHERE id = ?").get(other) as { name: string } | undefined)?.name ?? "?";
+              const otherName =
+                (db.prepare("SELECT name FROM characters WHERE id = ?").get(other) as { name: string } | undefined)?.name ?? "?";
               return `${l.kind}${l.certainty === "confirmed" ? "" : "?"} ${otherName}`;
             })
             .join(", ")}`
@@ -216,7 +289,7 @@ export function assembleOverview(novelId: number): ProjectOverview {
   // The story itself: every chapter with its summary (or opening text).
   const chapters = db
     .prepare("SELECT title, status, word_count, summary, body FROM chapters WHERE novel_id = ? ORDER BY position, id")
-    .all(novelId) as Record<string, any>[];
+    .all(novelId) as OverviewChapterRow[];
   stats.chapters = chapters.length;
   if (chapters.length) {
     const story = chapters.map((c, i) => {
@@ -228,7 +301,7 @@ export function assembleOverview(novelId: number): ProjectOverview {
 
   const world = db
     .prepare("SELECT category, title, body FROM world_entries WHERE novel_id = ? ORDER BY category, title COLLATE NOCASE")
-    .all(novelId) as Record<string, any>[];
+    .all(novelId) as OverviewWorldRow[];
   stats.world = world.length;
   if (world.length) {
     push(`WORLDBUILDING:\n${world.map((w) => `- ${w.title} (${w.category}): ${clean(w.body, 800) || "(no details yet)"}`).join("\n")}`);
@@ -236,18 +309,21 @@ export function assembleOverview(novelId: number): ProjectOverview {
 
   const timeline = db
     .prepare("SELECT title, description, story_date_label FROM timeline_events WHERE novel_id = ? ORDER BY story_date_order, id")
-    .all(novelId) as Record<string, any>[];
+    .all(novelId) as OverviewTimelineRow[];
   if (timeline.length) {
     push(
       `TIMELINE:\n${timeline
-        .map((e) => `- ${e.story_date_label || "date unknown"}: ${clean(e.title, 200)}${e.description ? ` — ${clean(e.description, 400)}` : ""}`)
-        .join("\n")}`
+        .map(
+          (e) =>
+            `- ${e.story_date_label || "date unknown"}: ${clean(e.title, 200)}${e.description ? ` — ${clean(e.description, 400)}` : ""}`,
+        )
+        .join("\n")}`,
     );
   }
 
   if (budget > 0) {
     parts.push(
-      "This is your complete view of the author's project, read live from their database. The author's approved canon and records are binding; open questions are for reference, not invention."
+      "This is your complete view of the author's project, read live from their database. The author's approved canon and records are binding; open questions are for reference, not invention.",
     );
   }
 
