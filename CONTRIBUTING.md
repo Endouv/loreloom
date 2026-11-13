@@ -37,7 +37,14 @@ loreloom/
 ## Code Conventions
 
 - **TypeScript** strict mode for both server and client
-- Use `npm run typecheck` to verify (`npx tsc -p server` and `npx tsc -p client --noEmit`)
+- Use `npm run typecheck` to verify (`npx tsc -p server`, `npx tsc -p client --noEmit` and
+  `npx tsc -p e2e` for the Playwright specs)
+- Use `npm run lint` to check ESLint (flat config in `eslint.config.js`; errors fail CI,
+  `any` is only a warning because SQLite rows and model output are genuinely untyped)
+- Use `npm run format` to apply Prettier (`.prettierrc.json`: double quotes, 2 spaces,
+  140 columns, trailing commas). The code is normalised, so `npm run format:check`
+  fails CI on unformatted code — run `npm run format` before opening a PR.
+  Markdown is intentionally excluded (Prettier would reflow prose line by line)
 - Use `npm run build` to build the client (`vite build`)
 - Follow the existing code style (see `src/util.ts` for shared helpers)
 - Never commit `server/data/`, `.env`, or model weights
@@ -52,7 +59,7 @@ loreloom/
 ## Pull Request Process
 
 1. Create a new branch from `main`.
-2. Make your changes, ensuring `npm run typecheck` passes.
+2. Make your changes, ensuring `npm run lint` and `npm run typecheck` pass.
 3. Run `npm run build` to verify the client builds.
 4. Test the feature end-to-end: create a novel, add a chapter, try AI writing, etc.
 5. Submit the pull request with a clear description of what was changed and how to test it.

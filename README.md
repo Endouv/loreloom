@@ -111,5 +111,8 @@ restore a file (restart Loreloom after restoring).
 | `npm run dev` | dev server + Vite with hot reload |
 | `npm run build` | typecheck server + build client |
 | `npm start` | build + serve everything on :4747 |
-| `npm run typecheck` | TypeScript for both workspaces |
-| `npm test` | 53-test suite against an isolated throwaway instance (real project data is never touched) |
+| `npm run typecheck` | TypeScript for both workspaces plus the e2e specs |
+| `npm run lint` | ESLint over server, client and tests (warnings only for `any`, which is deliberate here) |
+| `npm run format` | Prettier over the code (config in `.prettierrc.json`) |
+| `npm test` | 58-test suite against an isolated throwaway instance (real project data is never touched) |
+| `npm run test:e2e` | Playwright smoke tests against the built app (needs `npx playwright install chromium` once) |
