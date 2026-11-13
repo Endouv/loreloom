@@ -3,7 +3,7 @@
 Legend: ✅ built **and verified** · 🟡 built, verification pending · ⛔ not done · ❌ deliberately deferred.
 Verified means executed against the real stack (SQLite + running Ollama daemon), not claimed.
 
-Last updated: 2026-11-02, after Phase 7 verification round 1.
+Last updated: 2026-11-13, after the tooling, typing and end-to-end testing pass.
 
 ## Phase 1 — Architecture
 - ✅ Machine capabilities verified (CPU-only, 7 GB RAM; model budgets set accordingly)
@@ -11,7 +11,7 @@ Last updated: 2026-11-02, after Phase 7 verification round 1.
 - ✅ `docs/ROADMAP.md`
 
 ## Phase 2 — Core application
-- ✅ Monorepo scaffold; server typechecks clean; client typechecks + Vite build passes
+- ✅ Monorepo scaffold; lint, format, typecheck and Vite build all clean
 - ✅ SQLite schema (12 tables) + WAL + FK enforcement; startup backup rotation (10)
 - ✅ Novel CRUD (verified via API)
 - ✅ Chapter CRUD, drag-ordering endpoint, statuses draft/revision/completed (verified)
@@ -20,7 +20,8 @@ Last updated: 2026-11-02, after Phase 7 verification round 1.
   restore verified (restored to snapshot 1 successfully)
 - ✅ Chapter notes (verified)
 - ✅ Manuscript search API + UI modal
-- ✅ DOCX/PDF/TXT export (all three verified by file type + content inspection)
+- ✅ DOCX/PDF/TXT/Markdown export, with a format picker on each novel card (each format
+  download verified by file signature, name and content)
 - ✅ Word-count report API (project statistics)
 - ✅ Dashboard (projects, recents, notes, stats, activity preview)
 - ✅ Backups API (list/create/restore) + Settings UI
@@ -66,15 +67,18 @@ Last updated: 2026-11-02, after Phase 7 verification round 1.
 - ✅ Character knowledge tracking (per-character discovered/met/witnessed/secret/unaware) feeding the
   continuity checker for impossible-knowledge detection
 - ✅ Relationship web visualisation (SVG) and per-character chapter appearance history
-- ❌ EPUB export (deferred; DOCX/PDF/TXT shipped)
+- ❌ EPUB export (deferred; DOCX/PDF/TXT/Markdown shipped)
 - ❌ Publishing-assistant view (removed deliberately; manuscript export remains)
 
 ## Phase 7 — Testing & hardening
-- ✅ Automated suite (`npm test`, zero deps): 53 tests — pure-logic unit tests (editor JSON parsing/rejection,
-  name matching, `diffLines`) + full HTTP integration against an isolated throwaway instance (real data untouched)
+- ✅ Automated suite (`npm test`, zero deps): 58 tests — pure-logic unit tests (editor JSON parsing/rejection,
+  name matching, `diffLines`, search escaping) + full HTTP integration against an isolated throwaway instance
+  (real data untouched)
 - ✅ Streaming + abort path verified against live Ollama
-- ✅ Browser-driven walkthrough (Playwright + real Chrome + real Ollama): create novel/chapter, type, grammar
-  pass, apply, verify autosave + History snapshot, multi-mode second pass, zero console errors — all passed
+- ✅ End-to-end suite (`npm run test:e2e`, Playwright + Chromium): 6 specs against a production build on its own
+  port and a throwaway data directory — editor autosave round-trip, AI-suggestion approval, staged backup
+  restore across a real restart, chapter history restore, every export format, manuscript search. No model needed
+  (Ollama is pointed at a dead endpoint), so the suite is deterministic and runs in CI
 - ✅ Fixed during verification: req-close early-abort bug; startup-backup TDZ bug; pull-task stream design; chapter snapshot semantics
 - ✅ Fixed during character-engine build: un-awaited manual backup (raced/flaked); character detail
   endpoint 500 (`chapterId` alias mis-selected) — detail view was broken since Phase 2
@@ -86,8 +90,9 @@ Last updated: 2026-11-02, after Phase 7 verification round 1.
 - ⛔ Long-document performance measurement (manuscript >50k words)
 
 ## Phase 8 — Publishability hardening
-- ✅ **CI workflow** (`.github/workflows/ci.yml`): push/PR → typecheck, full test suite, production build,
-  and a smoke boot of the built server (health endpoint must answer; no Ollama in CI, AI failure paths are what the tests assert)
+- ✅ **CI workflow** (`.github/workflows/ci.yml`): push/PR → lint, format check, typecheck, full unit/integration
+  suite, production build, the Playwright end-to-end suite, and a smoke boot of the built server (health endpoint
+  must answer; no Ollama in CI, AI failure paths are what the tests assert)
 - ✅ **Graceful shutdown**: SIGINT/SIGTERM stop accepting requests, let in-flight ones finish, then
   `PRAGMA wal_checkpoint(TRUNCATE)` + clean `db.close()` (4s force-exit guard). Verified live: 354KB WAL
   folded into the main db, `-wal/-shm` files removed, process exits cleanly
@@ -100,9 +105,10 @@ Last updated: 2026-11-02, after Phase 7 verification round 1.
   >4M-cell size guard) in `client/src/diff.ts`; per-version "Diff" button in History opens
   snapshot→current-editor diff with +added/−removed coloring and stats
 - ✅ **LICENSE** (MIT, contributors) + **CONTRIBUTING.md** (local-first ground rules, dev/test/conventions)
-- ✅ Verified: typecheck clean, 53/53 tests ×2 runs, `npm run build` green, live draft capture + version
-  endpoint probes on the running server, production build boots and shuts down cleanly (SIGTERM checkpoint)
-- ⛔ CI run itself unverified on GitHub (workflow not yet pushed; asm verified locally via same commands)
+- ✅ Verified: lint and format checks clean, typecheck clean, 58/58 unit/integration tests, 6/6 end-to-end specs,
+  `npm run build` green, live draft capture + version endpoint probes on the running server, production build
+  boots and shuts down cleanly (SIGTERM checkpoint)
+- ⛔ CI run itself unverified on GitHub (workflow not yet pushed; every step was verified locally with the same commands)
 
 ## Automatic character engine — rules it enforces (kept honest)
 - Only manuscript-supported facts are stored; unknown profile fields stay empty
