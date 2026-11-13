@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, countWords, streamSse, type Chapter, type ChapterMeta, type ChapterVersion } from "../api.js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { EditorView } from "@codemirror/view";
+import { api, countWords, errorMessage, streamSse, type Chapter, type ChapterMeta, type ChapterVersion } from "../api.js";
 import { diffLines, diffStats, type DiffLine } from "../diff.js";
 import { Button, Card, Empty, Input, Label, Modal, Spinner, Tag, TextArea, useAppState } from "../ui.js";
 
@@ -98,9 +99,11 @@ export const Editor: React.FC = () => {
   const polishRangeRef = useRef<{ from: number; to: number } | null>(null);
   const [chapterModal, setChapterModal] = useState<{ mode: "new" | "rename"; name: string } | null>(null);
 
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const viewRef = useRef<any>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  // Latest focus-mode flag for the one-time view construction below. Depending
+  // on it there would tear down and rebuild the editor (and its undo history)
+  // every time the author toggled focus mode.
+  const focusModeRef = useRef(prefs?.ui.focusMode ?? false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const loadingDocRef = useRef(false);
@@ -134,11 +137,6 @@ export const Editor: React.FC = () => {
     polishRangeRef.current = null;
   }, [activeId]);
 
-  const reloadChapters = useCallback(() => {
-    if (!activeNovelId) return;
-    api.get<ChapterMeta[]>(`/novels/${activeNovelId}/chapters`).then(setChapters).catch(() => {});
-  }, [activeNovelId]);
-
   // Create the CodeMirror editor once the container node exists. The ref div
   // is unmounted while no chapter is open, so this runs when it first mounts.
   useEffect(() => {
@@ -148,19 +146,18 @@ export const Editor: React.FC = () => {
       if (disposed) return;
       const CMView = await import("@codemirror/view");
       const { history, historyKeymap, defaultKeymap } = await import("@codemirror/commands");
-      const { EditorView, keymap, placeholder, drawSelection, EditorView: _ } = CMView as any;
-      const view = new EditorView({
+      const view = new CMView.EditorView({
         parent: editorNode,
         state: EditorState.create({
           doc: "",
           extensions: [
             history(),
-            keymap.of([...historyKeymap, ...defaultKeymap]),
-            placeholder("The page is empty. Write, or ask the AI on the right for a draft…"),
-            drawSelection(),
-            EditorView.lineWrapping,
+            CMView.keymap.of([...historyKeymap, ...defaultKeymap]),
+            CMView.placeholder("The page is empty. Write, or ask the AI on the right for a draft…"),
+            CMView.drawSelection(),
+            CMView.EditorView.lineWrapping,
             EditorState.allowMultipleSelections.of(false),
-            EditorView.updateListener.of((u: any) => {
+            CMView.EditorView.updateListener.of((u) => {
               if (!u.docChanged || loadingDocRef.current) return;
               const text = u.state.doc.toString();
               setWords(countWords(text));
@@ -170,7 +167,7 @@ export const Editor: React.FC = () => {
         }),
       });
       viewRef.current = view;
-      view.dom.setAttribute("class", `cm-editor ${prefs?.ui.focusMode ? "cm-focus-dim" : ""}`);
+      view.dom.setAttribute("class", `cm-editor ${focusModeRef.current ? "cm-focus-dim" : ""}`);
       // If a chapter was fetched while the view was still constructing, load it now.
       if (pendingBodyRef.current !== null) {
         const body = pendingBodyRef.current;
@@ -183,17 +180,20 @@ export const Editor: React.FC = () => {
     });
     return () => {
       disposed = true;
-      viewRef.current?.destroy?.();
+      viewRef.current?.destroy();
       viewRef.current = null;
     };
   }, [editorNode]);
 
   // Focus-mode dimming is a pure class change; no need to rebuild the editor.
+  // Read through a plain local: exhaustive-deps does not reliably match an
+  // optional chain like `prefs?.ui.focusMode` against the same chain in deps.
+  const focusMode = prefs?.ui.focusMode ?? false;
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    view.dom.setAttribute("class", `cm-editor ${prefs?.ui.focusMode ? "cm-focus-dim" : ""}`);
-  }, [prefs?.ui.focusMode, editorVersion]);
+    view.dom.setAttribute("class", `cm-editor ${focusMode ? "cm-focus-dim" : ""}`);
+  }, [focusMode, editorVersion]);
 
   // Load a chapter into the editor. If the CodeMirror view isn't constructed
   // yet (async imports), the body is parked in pendingBodyRef and the view
@@ -231,14 +231,20 @@ export const Editor: React.FC = () => {
       try {
         const updated = await api.put<Chapter>(`/chapters/${activeId}`, payload);
         setChapter(updated);
-        setChapters((cs) => cs.map((c) => (c.id === activeId ? { ...c, title: updated.title, status: updated.status, wordCount: updated.wordCount, notes: updated.notes } : c)));
+        setChapters((cs) =>
+          cs.map((c) =>
+            c.id === activeId
+              ? { ...c, title: updated.title, status: updated.status, wordCount: updated.wordCount, notes: updated.notes }
+              : c,
+          ),
+        );
         setSaveState("saved");
-      } catch (e: any) {
+      } catch (e) {
         setSaveState("error");
-        setError(e.message);
+        setError(errorMessage(e));
       }
     },
-    [activeId]
+    [activeId],
   );
 
   const scheduleAutosave = useCallback(() => {
@@ -266,17 +272,22 @@ export const Editor: React.FC = () => {
       setSaveState("dirty");
       scheduleAutosave();
     };
-    // listen via CodeMirror updateListener already; this covers focus-mode class changes
     view.dom.addEventListener("input", onDocChange);
     return () => view.dom.removeEventListener("input", onDocChange);
-  }, [activeId, scheduleAutosave]);
+    // `editorVersion` is load-bearing: the view is created by an async import,
+    // so this effect can first run while viewRef is still null. Without it the
+    // listener would never attach and autosave would silently never fire.
+  }, [activeId, scheduleAutosave, editorVersion]);
 
-  const beforeunload = useCallback((e: BeforeUnloadEvent) => {
-    if (saveState === "dirty" || saveState === "saving") {
-      e.preventDefault();
-      e.returnValue = "";
-    }
-  }, [saveState]);
+  const beforeunload = useCallback(
+    (e: BeforeUnloadEvent) => {
+      if (saveState === "dirty" || saveState === "saving") {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    },
+    [saveState],
+  );
   useEffect(() => {
     window.addEventListener("beforeunload", beforeunload);
     return () => window.removeEventListener("beforeunload", beforeunload);
@@ -355,7 +366,7 @@ export const Editor: React.FC = () => {
             if (type === "cancelled") setError("Generation cancelled.");
           },
         },
-        controller.signal
+        controller.signal,
       );
     } finally {
       setAiBusy(false);
@@ -381,7 +392,7 @@ export const Editor: React.FC = () => {
     }
     if (text.length > 16000) {
       setPolishError(
-        `That ${useSelection ? "selection" : "chapter"} is ${text.length.toLocaleString()} characters — one editing pass handles up to 16,000. Select the passage you want polished, then run it again.`
+        `That ${useSelection ? "selection" : "chapter"} is ${text.length.toLocaleString()} characters — one editing pass handles up to 16,000. Select the passage you want polished, then run it again.`,
       );
       return;
     }
@@ -397,8 +408,8 @@ export const Editor: React.FC = () => {
         modes: polishModes,
       });
       setPolish(result);
-    } catch (e: any) {
-      setPolishError(e.message || "The editing model failed.");
+    } catch (e) {
+      setPolishError(errorMessage(e));
     } finally {
       setPolishBusy(false);
     }
@@ -427,9 +438,9 @@ export const Editor: React.FC = () => {
       lastSavedRef.current = body;
       setSaveState("saved");
       loadVersions();
-    } catch (e: any) {
+    } catch (e) {
       setSaveState("error");
-      setError(e.message);
+      setError(errorMessage(e));
     }
     setPolish(null);
     setPolishFromSelection(false);
@@ -437,15 +448,19 @@ export const Editor: React.FC = () => {
   };
 
   const saveVersion = async () => {
-    if (!activeId) return;
-    await api.put(`/chapters/${activeId}?source=manual`, { body: viewRef.current.state.doc.toString() });
+    const view = viewRef.current;
+    if (!activeId || !view) return;
+    await api.put(`/chapters/${activeId}?source=manual`, { body: view.state.doc.toString() });
     loadVersions();
     setSaveState("saved");
   };
 
   const loadVersions = useCallback(() => {
     if (!activeId) return;
-    api.get<ChapterVersion[]>(`/chapters/${activeId}/versions`).then(setVersions).catch(() => setVersions([]));
+    api
+      .get<ChapterVersion[]>(`/chapters/${activeId}/versions`)
+      .then(setVersions)
+      .catch(() => setVersions([]));
   }, [activeId]);
 
   const showVersionDiff = async (v: ChapterVersion) => {
@@ -531,7 +546,11 @@ export const Editor: React.FC = () => {
   if (!activeNovelId) {
     return (
       <Empty title="No novel selected">
-        Pick a project on the <a className="text-loom-500 underline" href="/novels">My Novels</a> page, or create one there, then return here to write.
+        Pick a project on the{" "}
+        <a className="text-loom-500 underline" href="/novels">
+          My Novels
+        </a>{" "}
+        page, or create one there, then return here to write.
       </Empty>
     );
   }
@@ -540,19 +559,25 @@ export const Editor: React.FC = () => {
   void novel;
 
   const sidebarButton = (c: ChapterMeta, i: number) => (
-    <div key={c.id} className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${activeId === c.id ? "bg-ink-800" : "hover:bg-ink-850"}`}>
-      <button
-        onClick={() => setActiveId(c.id)}
-        className="flex-1 text-left min-w-0"
-      >
+    <div
+      key={c.id}
+      className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${activeId === c.id ? "bg-ink-800" : "hover:bg-ink-850"}`}
+    >
+      <button onClick={() => setActiveId(c.id)} className="flex-1 text-left min-w-0">
         <div className="text-sm truncate">{c.title}</div>
         <div className="text-[10px] text-ink-400">{c.wordCount} words</div>
       </button>
       <div className="opacity-0 group-hover:opacity-100 flex flex-col leading-none">
-        <button className="text-ink-400 hover:text-ink-200 text-[9px]" onClick={() => moveChapter(c.id, -1)}>▲</button>
-        <button className="text-ink-400 hover:text-ink-200 text-[9px]" onClick={() => moveChapter(c.id, 1)}>▼</button>
+        <button className="text-ink-400 hover:text-ink-200 text-[9px]" onClick={() => moveChapter(c.id, -1)}>
+          ▲
+        </button>
+        <button className="text-ink-400 hover:text-ink-200 text-[9px]" onClick={() => moveChapter(c.id, 1)}>
+          ▼
+        </button>
       </div>
-      <button className="text-ink-700 hover:text-red-400 hidden group-hover:block ml-1 text-xs" onClick={() => deleteChapter(c.id)}>×</button>
+      <button className="text-ink-700 hover:text-red-400 hidden group-hover:block ml-1 text-xs" onClick={() => deleteChapter(c.id)}>
+        ×
+      </button>
       <span className="text-[9px] text-ink-700 w-3 text-right">{i + 1}</span>
     </div>
   );
@@ -563,12 +588,26 @@ export const Editor: React.FC = () => {
       <aside className="w-60 shrink-0 border-r border-ink-800 bg-ink-900 flex flex-col">
         <div className="p-3 border-b border-ink-800 flex items-center justify-between">
           <span className="text-xs uppercase tracking-wider text-ink-400">Chapters</span>
-          <Button onClick={() => setChapterModal({ mode: "new", name: "New Chapter" })} variant="subtle">+</Button>
+          <Button onClick={() => setChapterModal({ mode: "new", name: "New Chapter" })} variant="subtle">
+            +
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">{chapters.map((c, i) => sidebarButton(c, i))}</div>
         <div className="p-3 border-t border-ink-800 flex flex-col gap-2">
           <div className="flex items-center justify-between text-xs text-ink-400">
-            <span>{saveState === "saved" ? "All changes saved" : saveState === "saving" ? (<span className="flex items-center gap-1"><Spinner /> saving…</span>) : saveState === "error" ? "Save failed" : "Unsaved edits"}</span>
+            <span>
+              {saveState === "saved" ? (
+                "All changes saved"
+              ) : saveState === "saving" ? (
+                <span className="flex items-center gap-1">
+                  <Spinner /> saving…
+                </span>
+              ) : saveState === "error" ? (
+                "Save failed"
+              ) : (
+                "Unsaved edits"
+              )}
+            </span>
             <span>{words.toLocaleString()} w</span>
           </div>
           <div className="flex gap-1 flex-wrap">
@@ -585,23 +624,30 @@ export const Editor: React.FC = () => {
           <>
             <header className="flex items-center justify-between px-6 h-12 border-b border-ink-800">
               <div className="flex items-center gap-3 min-w-0">
-                <button className="font-serif text-lg truncate hover:text-loom-500" onClick={() => setChapterModal({ mode: "rename", name: chapter.title })}>
+                <button
+                  className="font-serif text-lg truncate hover:text-loom-500"
+                  onClick={() => setChapterModal({ mode: "rename", name: chapter.title })}
+                >
                   {chapter.title}
                 </button>
                 <Tag tone={STATUS_TONES[chapter.status]}>{chapter.status}</Tag>
               </div>
               <div className="flex items-center gap-2">
                 {(["draft", "revision", "completed"] as const).map((s) => (
-                  <button key={s} onClick={() => setStatus(s)} className={`text-xs px-2 py-1 rounded border ${chapter.status === s ? "border-loom-500 text-loom-500" : "border-ink-700 text-ink-400 hover:text-ink-200"}`}>
+                  <button
+                    key={s}
+                    onClick={() => setStatus(s)}
+                    className={`text-xs px-2 py-1 rounded border ${chapter.status === s ? "border-loom-500 text-loom-500" : "border-ink-700 text-ink-400 hover:text-ink-200"}`}
+                  >
                     {s}
                   </button>
                 ))}
-                <Button variant="primary" onClick={saveVersion}>Save version</Button>
+                <Button variant="primary" onClick={saveVersion}>
+                  Save version
+                </Button>
               </div>
             </header>
-            {error && (
-              <div className="px-6 py-2 bg-red-950/40 text-red-300 text-sm">{error}</div>
-            )}
+            {error && <div className="px-6 py-2 bg-red-950/40 text-red-300 text-sm">{error}</div>}
             <div className="flex-1 overflow-y-auto" style={{ background: "var(--color-ink-950)" }}>
               <div ref={setEditorNode} style={{ maxWidth: prefs?.ui.editorWidth ?? 720, margin: "0 auto" }} />
             </div>
@@ -618,7 +664,9 @@ export const Editor: React.FC = () => {
         <aside className="w-72 shrink-0 border-l border-ink-800 bg-ink-900 flex flex-col">
           <div className="p-3 border-b border-ink-800 flex justify-between items-center">
             <span className="text-xs uppercase tracking-wider text-ink-400">Chapter notes</span>
-            <button className="text-ink-400 hover:text-ink-200" onClick={() => setShowNotes(false)}>×</button>
+            <button className="text-ink-400 hover:text-ink-200" onClick={() => setShowNotes(false)}>
+              ×
+            </button>
           </div>
           <div className="p-3 flex-1 flex flex-col gap-3">
             <TextArea
@@ -627,7 +675,9 @@ export const Editor: React.FC = () => {
               placeholder="Working notes for this chapter: what must happen, what to avoid…"
               onChange={(e) => setChapter({ ...chapter, notes: e.target.value })}
             />
-            <Button variant="primary" onClick={() => persist({ notes: chapter.notes })}>Save notes</Button>
+            <Button variant="primary" onClick={() => persist({ notes: chapter.notes })}>
+              Save notes
+            </Button>
           </div>
         </aside>
       )}
@@ -637,19 +687,27 @@ export const Editor: React.FC = () => {
         <aside className="w-72 shrink-0 border-l border-ink-800 bg-ink-900 flex flex-col">
           <div className="p-3 border-b border-ink-800 flex justify-between items-center">
             <span className="text-xs uppercase tracking-wider text-ink-400">Revision history</span>
-            <button className="text-ink-400 hover:text-ink-200" onClick={() => setShowVersions(false)}>×</button>
+            <button className="text-ink-400 hover:text-ink-200" onClick={() => setShowVersions(false)}>
+              ×
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
             {(versions ?? []).map((v) => (
               <Card key={v.id} className="p-3">
-                <div className="text-xs text-ink-400">{v.createdAt} · {v.source}</div>
+                <div className="text-xs text-ink-400">
+                  {v.createdAt} · {v.source}
+                </div>
                 <div className="flex gap-2 mt-2">
                   <Button onClick={() => restoreVersion(v.id)}>Restore</Button>
-                  <Button variant="subtle" onClick={() => showVersionDiff(v)}>Diff</Button>
+                  <Button variant="subtle" onClick={() => showVersionDiff(v)}>
+                    Diff
+                  </Button>
                 </div>
               </Card>
             ))}
-            {versions && versions.length === 0 && <p className="text-xs text-ink-400">No snapshots yet. They accrue as you write and before manual edits.</p>}
+            {versions && versions.length === 0 && (
+              <p className="text-xs text-ink-400">No snapshots yet. They accrue as you write and before manual edits.</p>
+            )}
           </div>
         </aside>
       )}
@@ -661,7 +719,9 @@ export const Editor: React.FC = () => {
             <span className="text-xs uppercase tracking-wider text-ink-400">Writing assistant</span>
             <div className="flex items-center gap-2">
               {aiModel && <span className="text-[10px] text-ink-400">{aiModel}</span>}
-              <button className="text-ink-400 hover:text-ink-200" onClick={() => setAiOpen(false)}>×</button>
+              <button className="text-ink-400 hover:text-ink-200" onClick={() => setAiOpen(false)}>
+                ×
+              </button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
@@ -693,10 +753,19 @@ export const Editor: React.FC = () => {
             </label>
             <div className="flex gap-2">
               <Button variant="primary" onClick={() => runAi(aiMode)} disabled={aiBusy}>
-                {aiBusy ? <> <Spinner /> Writing…</> : "Generate"}
+                {aiBusy ? (
+                  <>
+                    {" "}
+                    <Spinner /> Writing…
+                  </>
+                ) : (
+                  "Generate"
+                )}
               </Button>
               {aiBusy && (
-                <Button variant="danger" onClick={() => abortRef.current?.abort()}>Cancel</Button>
+                <Button variant="danger" onClick={() => abortRef.current?.abort()}>
+                  Cancel
+                </Button>
               )}
             </div>
             {aiOutput && (
@@ -704,19 +773,25 @@ export const Editor: React.FC = () => {
                 <div className="prose-stream text-sm whitespace-pre-wrap font-editor leading-relaxed">{aiOutput}</div>
                 {!aiBusy && (
                   <div className="flex gap-2 mt-3">
-                    <Button variant="primary" onClick={() => insertAtCursor(aiOutput)}>Insert</Button>
+                    <Button variant="primary" onClick={() => insertAtCursor(aiOutput)}>
+                      Insert
+                    </Button>
                     <Button onClick={() => replaceSelectionOrChapter(aiOutput)}>Replace</Button>
-                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(aiOutput)}>Copy</Button>
-                    <Button variant="subtle" onClick={() => setAiOutput("")}>Discard</Button>
+                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(aiOutput)}>
+                      Copy
+                    </Button>
+                    <Button variant="subtle" onClick={() => setAiOutput("")}>
+                      Discard
+                    </Button>
                   </div>
                 )}
               </Card>
             )}
-            {aiOutput && aiBusy && (
-              <p className="text-[11px] text-ink-400">Streaming from your local model… you can cancel at any time.</p>
-            )}
+            {aiOutput && aiBusy && <p className="text-[11px] text-ink-400">Streaming from your local model… you can cancel at any time.</p>}
             {aiFromSelection && aiOutput && !aiBusy && (
-              <p className="text-[11px] text-ink-400">Generated from your selection. “Insert” places it after the selection; “Replace” swaps them.</p>
+              <p className="text-[11px] text-ink-400">
+                Generated from your selection. “Insert” places it after the selection; “Replace” swaps them.
+              </p>
             )}
             {/* Fix & polish: grammar, better sentences, stronger wording… */}
             <div className="border-t border-ink-750 pt-3 space-y-2">
@@ -729,13 +804,9 @@ export const Editor: React.FC = () => {
                   <button
                     key={m.key}
                     title={m.blurb}
-                    onClick={() =>
-                      setPolishModes((ms) => (ms.includes(m.key) ? ms.filter((x) => x !== m.key) : [...ms, m.key]))
-                    }
+                    onClick={() => setPolishModes((ms) => (ms.includes(m.key) ? ms.filter((x) => x !== m.key) : [...ms, m.key]))}
                     className={`text-[10px] px-2 py-1 rounded border ${
-                      polishModes.includes(m.key)
-                        ? "border-loom-500 text-loom-500"
-                        : "border-ink-750 text-ink-300 hover:border-ink-400"
+                      polishModes.includes(m.key) ? "border-loom-500 text-loom-500" : "border-ink-750 text-ink-300 hover:border-ink-400"
                     }`}
                   >
                     {m.label}
@@ -743,7 +814,13 @@ export const Editor: React.FC = () => {
                 ))}
               </div>
               <Button variant="primary" onClick={runPolish} disabled={polishBusy || aiBusy}>
-                {polishBusy ? <><Spinner /> Checking…</> : "Check grammar & sentences"}
+                {polishBusy ? (
+                  <>
+                    <Spinner /> Checking…
+                  </>
+                ) : (
+                  "Check grammar & sentences"
+                )}
               </Button>
               {polishError && <p className="text-[11px] text-red-400">{polishError}</p>}
               {polish && (
@@ -752,7 +829,8 @@ export const Editor: React.FC = () => {
                     {polish.changes.length === 0
                       ? "No problems found — this already reads clean."
                       : `${polish.changes.length} suggestion${polish.changes.length === 1 ? "" : "s"}`}
-                    {" · "}{polish.model} · {polishFromSelection ? "your selection" : "whole chapter"}
+                    {" · "}
+                    {polish.model} · {polishFromSelection ? "your selection" : "whole chapter"}
                   </div>
                   {polish.changes.slice(0, 12).map((c, i) => (
                     <div key={i} className="text-[11px] leading-snug border-l-2 border-ink-700 pl-2">
@@ -764,7 +842,8 @@ export const Editor: React.FC = () => {
                   ))}
                   {polish.changes.length > 12 && (
                     <div className="text-[10px] text-ink-400">
-                      …and {polish.changes.length - 12} more change{polish.changes.length - 12 === 1 ? "" : "s"} — applying uses the full corrected text.
+                      …and {polish.changes.length - 12} more change{polish.changes.length - 12 === 1 ? "" : "s"} — applying uses the full
+                      corrected text.
                     </div>
                   )}
                   <div className="flex gap-2 pt-1">
@@ -775,10 +854,16 @@ export const Editor: React.FC = () => {
                         {polishFromSelection ? "Replace selection" : "Apply & save"}
                       </Button>
                     )}
-                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(polish.revised)}>Copy</Button>
-                    <Button variant="subtle" onClick={() => setPolish(null)}>Discard</Button>
+                    <Button variant="subtle" onClick={() => navigator.clipboard.writeText(polish.revised)}>
+                      Copy
+                    </Button>
+                    <Button variant="subtle" onClick={() => setPolish(null)}>
+                      Discard
+                    </Button>
                   </div>
-                  <p className="text-[10px] text-ink-400">A snapshot of the current text is saved first, so Apply is reversible from History.</p>
+                  <p className="text-[10px] text-ink-400">
+                    A snapshot of the current text is saved first, so Apply is reversible from History.
+                  </p>
                 </Card>
               )}
             </div>
@@ -793,12 +878,15 @@ export const Editor: React.FC = () => {
               {showDrafts && (
                 <div className="mt-2 space-y-1.5 max-h-56 overflow-y-auto">
                   {drafts.length === 0 && (
-                    <p className="text-[11px] text-ink-400">Every generation is saved here while it streams — recoverable even if the tab crashes.</p>
+                    <p className="text-[11px] text-ink-400">
+                      Every generation is saved here while it streams — recoverable even if the tab crashes.
+                    </p>
                   )}
                   {drafts.map((d) => (
                     <div key={d.id} className="flex items-center gap-2 text-xs group">
                       <span className="flex-1 truncate text-ink-300" title={d.text.slice(0, 200)}>
-                        {d.task} · {d.text.length.toLocaleString()} chars · {new Date(d.updatedAt + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {d.task} · {d.text.length.toLocaleString()} chars ·{" "}
+                        {new Date(d.updatedAt + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <Button
                         variant="subtle"
@@ -840,13 +928,27 @@ export const Editor: React.FC = () => {
       {/* Search modal */}
       <Modal open={showSearch} onClose={() => setShowSearch(false)} title="Find across chapters" wide>
         <div className="flex gap-2">
-          <Input className="flex-1" autoFocus value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="Search text or notes…" />
-          <Button variant="primary" onClick={runSearch}>Search</Button>
+          <Input
+            className="flex-1"
+            autoFocus
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="Search text or notes…"
+          />
+          <Button variant="primary" onClick={runSearch}>
+            Search
+          </Button>
         </div>
         <div className="mt-4 flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
           {hits?.map((h) => (
             <Card key={`${h.chapterId}-${h.excerpt}`} className="p-3">
-              <button className="text-sm text-loom-500" onClick={() => { setActiveId(h.chapterId); setShowSearch(false); }}>
+              <button
+                className="text-sm text-loom-500"
+                onClick={() => {
+                  setActiveId(h.chapterId);
+                  setShowSearch(false);
+                }}
+              >
                 {h.chapterTitle}
               </button>
               <p className="text-xs text-ink-400 mt-1">{h.excerpt || "(in notes)"}</p>
@@ -857,7 +959,11 @@ export const Editor: React.FC = () => {
       </Modal>
 
       {/* Chapter dialog */}
-      <Modal open={chapterModal != null} onClose={() => setChapterModal(null)} title={chapterModal?.mode === "new" ? "New chapter" : "Rename chapter"}>
+      <Modal
+        open={chapterModal != null}
+        onClose={() => setChapterModal(null)}
+        title={chapterModal?.mode === "new" ? "New chapter" : "Rename chapter"}
+      >
         <Label>Title</Label>
         <Input
           autoFocus
@@ -880,33 +986,35 @@ export const Editor: React.FC = () => {
         title={`Diff: snapshot ${diffView?.meta.createdAt.slice(0, 16).replace("T", " ") ?? ""} → current draft`}
         wide
       >
-        {diffView && (() => {
-          const { added, removed } = diffStats(diffView.lines);
-          return (
-            <div>
-              <p className="text-xs text-ink-400 mb-2">
-                <span className="text-green-500">+{added} added</span> · <span className="text-red-500">−{removed} removed</span> · unchanged lines are dim. Reading order top to bottom.
-              </p>
-              <div className="max-h-[60vh] overflow-y-auto font-mono text-[12px] leading-relaxed border border-ink-750 rounded bg-ink-950">
-                {diffView.lines.map((l, i) => (
-                  <div
-                    key={i}
-                    className={
-                      l.type === "add"
-                        ? "bg-green-950/50 text-green-200 px-2"
-                        : l.type === "del"
-                          ? "bg-red-950/50 text-red-200 px-2 whitespace-pre-wrap"
-                          : "text-ink-500 px-2 whitespace-pre-wrap"
-                    }
-                  >
-                    {l.type !== "same" && <span className="select-none opacity-60">{l.type === "add" ? "+ " : "− "}</span>}
-                    {l.text || (l.type === "same" ? "" : "␍")}
-                  </div>
-                ))}
+        {diffView &&
+          (() => {
+            const { added, removed } = diffStats(diffView.lines);
+            return (
+              <div>
+                <p className="text-xs text-ink-400 mb-2">
+                  <span className="text-green-500">+{added} added</span> · <span className="text-red-500">−{removed} removed</span> ·
+                  unchanged lines are dim. Reading order top to bottom.
+                </p>
+                <div className="max-h-[60vh] overflow-y-auto font-mono text-[12px] leading-relaxed border border-ink-750 rounded bg-ink-950">
+                  {diffView.lines.map((l, i) => (
+                    <div
+                      key={i}
+                      className={
+                        l.type === "add"
+                          ? "bg-green-950/50 text-green-200 px-2"
+                          : l.type === "del"
+                            ? "bg-red-950/50 text-red-200 px-2 whitespace-pre-wrap"
+                            : "text-ink-500 px-2 whitespace-pre-wrap"
+                      }
+                    >
+                      {l.type !== "same" && <span className="select-none opacity-60">{l.type === "add" ? "+ " : "− "}</span>}
+                      {l.text || (l.type === "same" ? "" : "␍")}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
       </Modal>
     </div>
   );
