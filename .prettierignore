@@ -3,9 +3,6 @@ node_modules/
 client-dist/
 server/dist/
 
-# Editor/tooling metadata
-.freebuff/
-
 # Playwright output
 playwright-report/
 test-results/

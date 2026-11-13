@@ -28,8 +28,6 @@ tmp/
 test-results/
 playwright-report/
 blob-report/
-# Tooling metadata (Freebuff Desktop project link)
-.freebuff/
 
 # Local build archive
 client-dist.zip
