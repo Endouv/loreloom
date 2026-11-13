@@ -15,9 +15,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # End-to-end smoke tests against the built app (no Ollama needed).
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       # Sanity: the built server boots with an empty environment (fresh clone
       # story). AI endpoints intentionally fail here — no Ollama in CI — and
       # the suite expects those deterministic failures.

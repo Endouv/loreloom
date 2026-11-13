@@ -23,6 +23,11 @@ server/dist/
 # Runtime
 *.log
 tmp/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
 # Tooling metadata (Freebuff Desktop project link)
 .freebuff/
 
