@@ -1,8 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api, type Novel } from "../api.js";
-import { Button, Card, Empty, Input, Label, Modal, Tag, TextArea, useAppState } from "../ui.js";
+import { api, errorMessage, type Novel } from "../api.js";
+import { Button, Card, Empty, Input, Label, Modal, Select, Tag, TextArea, useAppState } from "../ui.js";
 
 const BLANK = { title: "", genre: "", status: "draft", targetWords: 0, synopsis: "", tags: "" };
+
+/** Manuscript download formats the server builds. */
+const EXPORT_FORMATS = [
+  { key: "markdown", label: "Markdown" },
+  { key: "docx", label: "DOCX" },
+  { key: "pdf", label: "PDF" },
+] as const;
+type ExportFormat = (typeof EXPORT_FORMATS)[number]["key"];
 
 export const Novels: React.FC = () => {
   const { activeNovelId, setActiveNovel, reloadPrefs } = useAppState();
@@ -11,9 +19,13 @@ export const Novels: React.FC = () => {
   const [form, setForm] = useState(BLANK);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [exportFormats, setExportFormats] = useState<Record<number, ExportFormat>>({});
 
   const load = useCallback(() => {
-    api.get<Novel[]>("/novels").then(setNovels).catch((e) => setError(e.message));
+    api
+      .get<Novel[]>("/novels")
+      .then(setNovels)
+      .catch((e) => setError(e.message));
   }, []);
   useEffect(load, [load]);
 
@@ -23,7 +35,14 @@ export const Novels: React.FC = () => {
     setModal("new");
   };
   const openEdit = (n: Novel) => {
-    setForm({ title: n.title, genre: n.genre, status: n.status, targetWords: n.targetWords, synopsis: n.synopsis, tags: n.tags.join(", ") });
+    setForm({
+      title: n.title,
+      genre: n.genre,
+      status: n.status,
+      targetWords: n.targetWords,
+      synopsis: n.synopsis,
+      tags: n.tags.join(", "),
+    });
     setEditingId(n.id);
     setModal("edit");
   };
@@ -36,7 +55,10 @@ export const Novels: React.FC = () => {
       status: form.status,
       targetWords: Number(form.targetWords) || 0,
       synopsis: form.synopsis,
-      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+      tags: form.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
     };
     try {
       if (editingId) await api.put(`/novels/${editingId}`, payload);
@@ -47,9 +69,18 @@ export const Novels: React.FC = () => {
       setModal("closed");
       load();
       reloadPrefs();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(errorMessage(e));
     }
+  };
+
+  /** Download the manuscript in the chosen format, without leaving the app. */
+  const exportManuscript = (n: Novel) => {
+    const format = exportFormats[n.id] ?? "markdown";
+    const anchor = document.createElement("a");
+    anchor.href = `/api/novels/${n.id}/export?format=${format}`;
+    anchor.download = "";
+    anchor.click();
   };
 
   const remove = async (n: Novel) => {
@@ -63,7 +94,9 @@ export const Novels: React.FC = () => {
     <div className="max-w-5xl mx-auto p-8">
       <header className="flex items-center justify-between mb-6">
         <h1 className="font-serif text-2xl">My Novels</h1>
-        <Button variant="primary" onClick={openNew}>+ New novel</Button>
+        <Button variant="primary" onClick={openNew}>
+          + New novel
+        </Button>
       </header>
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
@@ -93,7 +126,23 @@ export const Novels: React.FC = () => {
                   <Button variant={activeNovelId === n.id ? "primary" : "ghost"}>Open editor</Button>
                 </a>
                 <Button onClick={() => openEdit(n)}>Details</Button>
-                <Button variant="danger" onClick={() => remove(n)}>Delete</Button>
+                <Select
+                  aria-label={`Export format for ${n.title}`}
+                  value={exportFormats[n.id] ?? "markdown"}
+                  onChange={(e) => setExportFormats({ ...exportFormats, [n.id]: e.target.value as ExportFormat })}
+                >
+                  {EXPORT_FORMATS.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+                <Button variant="subtle" onClick={() => exportManuscript(n)}>
+                  Export
+                </Button>
+                <Button variant="danger" onClick={() => remove(n)}>
+                  Delete
+                </Button>
               </div>
             </Card>
           ))}
@@ -109,7 +158,11 @@ export const Novels: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Genre</Label>
-              <Input value={form.genre} onChange={(e) => setForm({ ...form, genre: e.target.value })} placeholder="Fantasy / Thriller / …" />
+              <Input
+                value={form.genre}
+                onChange={(e) => setForm({ ...form, genre: e.target.value })}
+                placeholder="Fantasy / Thriller / …"
+              />
             </div>
             <div>
               <Label>Status</Label>
@@ -136,11 +189,17 @@ export const Novels: React.FC = () => {
           </div>
           <div>
             <Label>Tags (comma separated)</Label>
-            <Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="slow burn, heist, dual timeline" />
+            <Input
+              value={form.tags}
+              onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              placeholder="slow burn, heist, dual timeline"
+            />
           </div>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setModal("closed")}>Cancel</Button>
-            <Button variant="primary" onClick={save}>{editingId ? "Save" : "Create novel"}</Button>
+            <Button variant="primary" onClick={save}>
+              {editingId ? "Save" : "Create novel"}
+            </Button>
           </div>
         </div>
       </Modal>

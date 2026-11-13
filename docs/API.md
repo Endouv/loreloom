@@ -95,7 +95,7 @@ rewrites without listing changes, the request fails with 502 and nothing changes
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/novels/:novelId/export?format=docx\|pdf\|txt&statuses=` | downloads a manuscript |
+| `GET` | `/api/novels/:novelId/export?format=docx\|pdf\|txt\|markdown&statuses=` | downloads a manuscript (`markdown` also accepts `md`) |
 | `GET` | `/api/novels/:novelId/report` | word-count / chapter report JSON |
 
 ## Ollama and hardware
@@ -119,7 +119,7 @@ rewrites without listing changes, the request fails with 502 and nothing changes
 | `GET/PUT` | `/api/preferences` | model tiers, queue limits, UI prefs |
 | `GET` | `/api/backups` | snapshots + current DB size |
 | `POST` | `/api/backups` | create a snapshot now |
-| `POST` | `/api/backups/restore` | `{ filename }`; restart afterwards |
+| `POST` | `/api/backups/restore` | `{ filename }`; stages the restore — applied at next startup, and the replaced database is backed up first |
 | `GET` | `/api/dashboard` | totals for the dashboard |
 | `GET` | `/api/health` | `{ ok: true, app: "loreloom" }` |
 

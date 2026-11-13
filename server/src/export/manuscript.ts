@@ -1,14 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/database.js";
 import { asyncHandler, badRequest } from "../util.js";
-import {
-  Document,
-  Packer,
-  Paragraph,
-  TextRun,
-  HeadingLevel,
-  AlignmentType,
-} from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from "docx";
 import PDFDocument from "pdfkit";
 
 export const exportRouter = Router();
@@ -24,8 +17,7 @@ interface ExportChapter {
 
 function getManuscript(novelId: number, statuses: string[] | null, includeTitlePageComments: boolean) {
   const novel = db.prepare("SELECT * FROM novels WHERE id = ?").get(novelId) as
-    | { id: number; title: string; genre: string; synopsis: string }
-    | undefined;
+    { id: number; title: string; genre: string; synopsis: string } | undefined;
   if (!novel) badRequest("Novel not found");
   let chapters = db
     .prepare("SELECT id, title, body, status, position, word_count FROM chapters WHERE novel_id = ? ORDER BY position, id")
@@ -51,7 +43,9 @@ function buildDocx(novel: { title: string; genre: string; synopsis: string }, ch
     }),
   ];
   for (const ch of chapters) {
-    children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(ch.title)], spacing: { before: 360, after: 200 } }));
+    children.push(
+      new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(ch.title)], spacing: { before: 360, after: 200 } }),
+    );
     for (const para of ch.body.split(/\n\s*\n/).filter((p) => p.trim())) {
       children.push(
         new Paragraph({
@@ -59,7 +53,7 @@ function buildDocx(novel: { title: string; genre: string; synopsis: string }, ch
           spacing: { line: 360 },
           indent: { firstLine: 448 },
           children: [new TextRun(para.trim())],
-        })
+        }),
       );
     }
   }
@@ -108,6 +102,27 @@ exportRouter.get(
       return res.send(text);
     }
 
+    if (format === "markdown" || format === "md") {
+      // Markdown keeps the manuscript portable: title, optional premise, then
+      // each chapter as a heading followed by its prose, in manuscript order.
+      let md = `# ${novel.title}\n`;
+      if (novel.genre) md += `\n*${novel.genre}*\n`;
+      if (novel.synopsis.trim()) {
+        const quote = novel.synopsis
+          .trim()
+          .split(/\r?\n/)
+          .map((line) => `> ${line}`.trimEnd())
+          .join("\n");
+        md += `\n${quote}\n`;
+      }
+      for (const ch of chapters) {
+        md += `\n## ${ch.title}\n\n${ch.body.trim()}\n`;
+      }
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${base}.md"`);
+      return res.send(md);
+    }
+
     if (format === "docx") {
       const buffer = await buildDocx(novel, chapters);
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
@@ -122,8 +137,8 @@ exportRouter.get(
       return res.send(buffer);
     }
 
-    badRequest("format must be one of docx, pdf, txt");
-  })
+    badRequest("format must be one of docx, pdf, txt, markdown");
+  }),
 );
 
 exportRouter.get(
@@ -131,8 +146,7 @@ exportRouter.get(
   asyncHandler((req, res) => {
     const novelId = Number(req.params.novelId);
     const novel = db.prepare("SELECT id, title, genre, status, target_words FROM novels WHERE id = ?").get(novelId) as
-      | { id: number; title: string; genre: string; status: string; target_words: number }
-      | undefined;
+      { id: number; title: string; genre: string; status: string; target_words: number } | undefined;
     if (!novel) badRequest("Novel not found");
     const chapters = db
       .prepare("SELECT id, title, status, word_count, position FROM chapters WHERE novel_id = ? ORDER BY position, id")
@@ -153,5 +167,5 @@ exportRouter.get(
       byStatus,
       wordsByStatus,
     });
-  })
+  }),
 );
