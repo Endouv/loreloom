@@ -50,7 +50,7 @@ const { applyExtraction, resolveName, similarNames, loadCast } = await import(".
 const { diffLines, diffStats } = await import("../../client/src/diff.js");
 // Direct DB handle for planting rows the streaming path would create (draft
 // capture needs a live model to run end-to-end, which tests can't rely on).
-const { db } = await import("../src/db/database.js");
+const { db, BACKUP_DIR } = await import("../src/db/database.js");
 await import("../src/index.js"); // starts listening on LORELOOM_PORT
 const BASE = `http://127.0.0.1:${process.env.LORELOOM_PORT}`;
 
@@ -94,17 +94,11 @@ test("parseEditorJson: JSON with prose around it is recovered", () => {
 });
 
 test("parseEditorJson: non-JSON prose is rejected, never treated as edited manuscript", () => {
-  assert.throws(
-    () => parseEditorJson("I could not produce JSON. Here is prose instead."),
-    /nothing was changed/i
-  );
+  assert.throws(() => parseEditorJson("I could not produce JSON. Here is prose instead."), /nothing was changed/i);
 });
 
 test("parseEditorJson: an unexplained rewrite is discarded", () => {
-  assert.throws(
-    () => parseEditorJson('{"revised":"totally different text","changes":[]}', "the original words"),
-    /discarded/i
-  );
+  assert.throws(() => parseEditorJson('{"revised":"totally different text","changes":[]}', "the original words"), /discarded/i);
 });
 
 test("parseEditorJson: a clean no-op keeps the original text", () => {
@@ -147,11 +141,11 @@ test("diffLines: marks the lines that were added and removed", () => {
   const d = diffLines("one\ntwo\nthree", "two\nthree and a half\nthree");
   assert.ok(
     d.some((l) => l.type === "del" && l.text === "one"),
-    "removed line is marked del"
+    "removed line is marked del",
   );
   assert.ok(
     d.some((l) => l.type === "add" && l.text === "three and a half"),
-    "new line is marked add"
+    "new line is marked add",
   );
   assert.ok(d.some((l) => l.type === "same" && l.text === "three"));
   assert.deepEqual(diffStats(d), { added: 1, removed: 1 });
@@ -300,6 +294,75 @@ test("chapters: manuscript search returns excerpts", async () => {
   assert.ok(res.json.results[0].excerpt.toLowerCase().includes("three"));
 });
 
+test("chapters: search treats % as a literal, not a wildcard", async () => {
+  const novel = await api("POST", "/api/novels", { title: "Wildcard Test" });
+  const wildNovel = novel.json.id;
+  const writeChapter = async (title: string, body: string) => {
+    const ch = await api("POST", `/api/novels/${wildNovel}/chapters`, { title });
+    await api("PUT", `/api/chapters/${ch.json.id}?source=manual`, { body });
+  };
+  await writeChapter("Progress", "The sheet said 100% Done and stayed that way.");
+  // Would match "100%" if the query were pasted into LIKE unescaped.
+  await writeChapter("Decoy", "100 Ways to Leave the Harbour");
+
+  const res = await api("GET", `/api/novels/${wildNovel}/search?q=${encodeURIComponent("100%")}`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.json.results.map((r: any) => r.chapterTitle),
+    ["Progress"],
+  );
+  assert.ok(res.json.results[0].excerpt.includes("100%"));
+
+  // A bare wildcard finds only chapters that really contain a % character.
+  const bare = await api("GET", `/api/novels/${wildNovel}/search?q=${encodeURIComponent("%")}`);
+  assert.deepEqual(
+    bare.json.results.map((r: any) => r.chapterTitle),
+    ["Progress"],
+  );
+});
+
+test("chapters: search treats _ as a literal, not a single-character wildcard", async () => {
+  const novel = await api("POST", "/api/novels", { title: "Underscore Test" });
+  const underNovel = novel.json.id;
+  const writeChapter = async (title: string, body: string) => {
+    const ch = await api("POST", `/api/novels/${underNovel}/chapters`, { title });
+    await api("PUT", `/api/chapters/${ch.json.id}?source=manual`, { body });
+  };
+  await writeChapter("Filename", "She opened file_name.txt and read it twice.");
+  // Would match "file_name" if _ were still a one-character wildcard.
+  await writeChapter("Decoy", "She opened fileXname.txt and read it twice.");
+
+  const res = await api("GET", `/api/novels/${underNovel}/search?q=${encodeURIComponent("file_name")}`);
+  assert.ok(
+    res.json.results.every((r: any) => r.chapterTitle !== "Decoy"),
+    "the underscore must not match 'X'",
+  );
+  assert.equal(res.json.results.length, 1);
+  assert.equal(res.json.results[0].chapterTitle, "Filename");
+});
+
+test("chapters: search treats a backslash as a literal, not the escape character", async () => {
+  const novel = await api("POST", "/api/novels", { title: "Backslash Test" });
+  const slashNovel = novel.json.id;
+  const writeChapter = async (title: string, body: string) => {
+    const ch = await api("POST", `/api/novels/${slashNovel}/chapters`, { title });
+    await api("PUT", `/api/chapters/${ch.json.id}?source=manual`, { body });
+  };
+  await writeChapter("Windows Path", "The log went to C:\\temp\\loreloom.log overnight.");
+  // Escaped, "\\t" would have meant a literal "t", so this decoy used to match too.
+  await writeChapter("Decoy", "The log went to C:temp\\loreloom.log overnight.");
+
+  const res = await api("GET", `/api/novels/${slashNovel}/search?q=${encodeURIComponent("C:\\temp")}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.results.length, 1);
+  assert.equal(res.json.results[0].chapterTitle, "Windows Path");
+
+  // A lone backslash matches a real backslash, not (as an escape) a percent sign.
+  const lone = await api("GET", `/api/novels/${slashNovel}/search?q=${encodeURIComponent("\\")}`);
+  assert.ok(lone.json.results.some((r: any) => r.chapterTitle === "Windows Path"));
+  assert.equal(lone.json.results.length, 2); // both chapters contain one
+});
+
 test("memory: bucket validation, create, promote, delete", async () => {
   const bad = await api("POST", `/api/novels/${novelId}/memory`, { text: "x", bucket: "not-a-bucket" });
   assert.equal(bad.status, 400);
@@ -333,6 +396,30 @@ test("backups: create and list", async () => {
   assert.equal(created.status, 200);
   const list = await api("GET", "/api/backups");
   assert.ok(list.json.files.some((f: any) => f.filename === created.json.filename));
+});
+
+test("backups: restore is staged, never swapped under the live connection", async () => {
+  const created = await api("POST", "/api/backups");
+  const before = (db.prepare("SELECT COUNT(*) AS c FROM novels").get() as { c: number }).c;
+
+  const res = await api("POST", "/api/backups/restore", { filename: created.json.filename });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.pending, true);
+
+  // The live database and its connection must be untouched until restart.
+  const after = (db.prepare("SELECT COUNT(*) AS c FROM novels").get() as { c: number }).c;
+  assert.equal(after, before);
+  assert.equal((await api("GET", "/api/health")).status, 200);
+});
+
+test("backups: a non-SQLite file is refused as a restore source", async () => {
+  fs.writeFileSync(path.join(BACKUP_DIR, "not-a-database.db"), "just some text");
+  const res = await api("POST", "/api/backups/restore", { filename: "not-a-database.db" });
+  assert.equal(res.status, 400);
+  assert.ok(res.json.error.includes("not a SQLite database"));
+
+  const missing = await api("POST", "/api/backups/restore", { filename: "nope.db" });
+  assert.equal(missing.status, 404);
 });
 
 test("dashboard reflects the test data", async () => {
@@ -419,9 +506,7 @@ test("character engine: analysis with no model is skipped, not failed", async ()
 
 test("character engine: extraction creates profiles with only supported fields", () => {
   const res = applyExtraction(castNovel, castChapter, {
-    characters: [
-      { name: "Adda Vael", aliases: ["Adda"], present: true, appearance: "tall", personality: "wry" },
-    ],
+    characters: [{ name: "Adda Vael", aliases: ["Adda"], present: true, appearance: "tall", personality: "wry" }],
     relationships: [{ from: "Adda Vael", to: "Priam Holt", kind: "ally", certain: true }],
     knowledge: [{ character: "Adda Vael", kind: "discovered", text: "The tower watches her." }],
     events: [{ character: "Adda Vael", description: "Climbed the wall" }],
@@ -582,7 +667,10 @@ test("ai drafts: generation output is listed per chapter and deletable", async (
   assert.equal(row.chapterId, chapterA);
 
   const unfiltered = await api("GET", `/api/ai/drafts?novelId=${novelId}`);
-  assert.ok(unfiltered.json.some((d: any) => d.id === id), "novel-level listing includes it");
+  assert.ok(
+    unfiltered.json.some((d: any) => d.id === id),
+    "novel-level listing includes it",
+  );
   const filtered = await api("GET", `/api/ai/drafts?novelId=${novelId}&chapterId=${chapterB}`);
   assert.ok(!filtered.json.some((d: any) => d.id === id), "other chapter doesn't see it");
 
@@ -603,10 +691,11 @@ test("ai drafts: pruning keeps at most 20 per novel, never breaks on old novels"
   ).c;
   assert.ok(count <= 20, `pruned to <=20, was ${count}`);
   // the newest survived
-  const newest = db.prepare("SELECT text FROM ai_drafts WHERE novel_id = ? AND task = ? ORDER BY id DESC LIMIT 1").get(novelId, "prune-test") as { text: string };
+  const newest = db
+    .prepare("SELECT text FROM ai_drafts WHERE novel_id = ? AND task = ? ORDER BY id DESC LIMIT 1")
+    .get(novelId, "prune-test") as { text: string };
   assert.equal(newest.text, "draft 24");
 });
-
 
 test("assistant chat: SSE error event when no model is available", async () => {
   const res = await fetch(`${BASE}/api/ai/assistant/chat`, {
