@@ -28,11 +28,11 @@ function exec(cmd: string, args: string[], timeoutMs = 3000): Promise<string | n
 
 export async function detectHardware(): Promise<HardwareProfile> {
   const cpus = os.cpus();
-  let ramFreeMb = os.freemem() / 1024 / 1024;
+  const ramFreeMb = os.freemem() / 1024 / 1024;
   let diskFreeGb = 0;
   try {
     const st = await fs.promises.statfs(".");
-    diskFreeGb = st.bavail * st.bsize / 1024 ** 3;
+    diskFreeGb = (st.bavail * st.bsize) / 1024 ** 3;
   } catch {
     /* disk detection is advisory */
   }

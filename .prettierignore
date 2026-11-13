@@ -1,0 +1,22 @@
+# Build output and dependencies
+node_modules/
+client-dist/
+server/dist/
+
+# Editor/tooling metadata
+.freebuff/
+
+# Playwright output
+playwright-report/
+test-results/
+
+# Runtime data — the manuscript is never text to reformat
+server/data/
+*.db
+*.log
+
+# Lockfile is generated
+package-lock.json
+
+# Long-form prose; Prettier would reflow documentation line by line
+*.md

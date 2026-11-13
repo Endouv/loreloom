@@ -15,8 +15,15 @@
   --font-editor: "Loreloom Serif", Georgia, serif;
 }
 
-html, body, #root { height: 100%; }
-body { background: var(--color-ink-950); color: var(--color-ink-200); }
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-200);
+}
 
 /* Editor typography */
 .cm-editor {
@@ -25,19 +32,52 @@ body { background: var(--color-ink-950); color: var(--color-ink-200); }
   font-size: var(--editor-font-size, 19px);
   line-height: var(--editor-line-height, 1.9);
 }
-.cm-editor.cm-focused { outline: none !important; }
-.cm-editor .cm-scroller { padding-block: 2rem; font-family: var(--font-editor) !important; }
-.cm-content { max-width: min(72ch, 100%); margin-inline: auto; padding-bottom: 40vh; caret-color: var(--color-loom-500); }
-.cm-line { padding: 0 1rem; }
-.cm-cursor { border-left-color: var(--color-loom-500) !important; }
-.cm-line:focus-within, .cm-focused .cm-line { color: var(--color-ink-200); }
+.cm-editor.cm-focused {
+  outline: none !important;
+}
+.cm-editor .cm-scroller {
+  padding-block: 2rem;
+  font-family: var(--font-editor) !important;
+}
+.cm-content {
+  max-width: min(72ch, 100%);
+  margin-inline: auto;
+  padding-bottom: 40vh;
+  caret-color: var(--color-loom-500);
+}
+.cm-line {
+  padding: 0 1rem;
+}
+.cm-cursor {
+  border-left-color: var(--color-loom-500) !important;
+}
+.cm-line:focus-within,
+.cm-focused .cm-line {
+  color: var(--color-ink-200);
+}
 
 /* focus mode: dim all but the active line's paragraph */
-.cm-focus-dim .cm-line { opacity: 0.35; transition: opacity .35s ease; }
-.cm-focus-dim .cm-line:hover, .cm-focus-dim .cm-activeLine { opacity: 1; }
+.cm-focus-dim .cm-line {
+  opacity: 0.35;
+  transition: opacity 0.35s ease;
+}
+.cm-focus-dim .cm-line:hover,
+.cm-focus-dim .cm-activeLine {
+  opacity: 1;
+}
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #38424a; border-radius: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #38424a;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-.prose-stream p { margin: 0.75em 0; }
+.prose-stream p {
+  margin: 0.75em 0;
+}

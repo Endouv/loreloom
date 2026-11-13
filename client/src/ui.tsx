@@ -3,9 +3,12 @@ import { api, type Preferences } from "./api.js";
 
 // ------------------------------ primitives ---------------------------------
 
-export const Button: React.FC<
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "subtle" }
-> = ({ variant = "ghost", className = "", children, ...rest }) => {
+export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "subtle" }> = ({
+  variant = "ghost",
+  className = "",
+  children,
+  ...rest
+}) => {
   const styles: Record<string, string> = {
     primary: "bg-loom-500 text-ink-950 hover:bg-loom-600 font-medium",
     ghost: "border border-ink-700 text-ink-200 hover:border-loom-500 hover:text-loom-500",
@@ -49,8 +52,14 @@ export const Label: React.FC<{ children: ReactNode }> = ({ children }) => (
   <label className="block text-xs uppercase tracking-wider text-ink-400 mb-1">{children}</label>
 );
 
-export const Card: React.FC<{ children: ReactNode; className?: string; onClick?: () => void }> = ({ children, className = "", onClick }) => (
-  <div onClick={onClick} className={`bg-ink-900 border border-ink-800 rounded-xl ${onClick ? "cursor-pointer " : ""}${className}`}>{children}</div>
+export const Card: React.FC<{ children: ReactNode; className?: string; onClick?: () => void }> = ({
+  children,
+  className = "",
+  onClick,
+}) => (
+  <div onClick={onClick} className={`bg-ink-900 border border-ink-800 rounded-xl ${onClick ? "cursor-pointer " : ""}${className}`}>
+    {children}
+  </div>
 );
 
 export const Modal: React.FC<{ open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }> = ({
@@ -69,7 +78,9 @@ export const Modal: React.FC<{ open: boolean; onClose: () => void; title: string
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-ink-800">
           <h3 className="font-serif text-loom-500">{title}</h3>
-          <button onClick={onClose} className="text-ink-400 hover:text-ink-200 text-lg leading-none">×</button>
+          <button onClick={onClose} className="text-ink-400 hover:text-ink-200 text-lg leading-none">
+            ×
+          </button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -85,7 +96,9 @@ export const Empty: React.FC<{ title: string; children?: ReactNode }> = ({ title
   </div>
 );
 
-export const Spinner: React.FC = () => <span className="inline-block w-3.5 h-3.5 border-2 border-loom-500 border-t-transparent rounded-full animate-spin" />;
+export const Spinner: React.FC = () => (
+  <span className="inline-block w-3.5 h-3.5 border-2 border-loom-500 border-t-transparent rounded-full animate-spin" />
+);
 
 export const Tag: React.FC<{ children: ReactNode; tone?: "gold" | "green" | "amber" | "red" | "blue" }> = ({ children, tone = "gold" }) => {
   const tones: Record<string, string> = {
@@ -123,7 +136,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return Number.isFinite(stored) && stored > 0 ? stored : null;
   });
 
-  const load = () => api.get<Preferences>("/preferences").then(setPrefs).catch(() => setPrefs(null));
+  const load = () =>
+    api
+      .get<Preferences>("/preferences")
+      .then(setPrefs)
+      .catch(() => setPrefs(null));
   useEffect(() => {
     load();
   }, []);

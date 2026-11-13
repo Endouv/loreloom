@@ -50,9 +50,7 @@ const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </NavLink>
           ))}
         </div>
-        <div className="px-5 pt-4 border-t border-ink-800 text-[11px] text-ink-400">
-          Ollama · your machine · your words
-        </div>
+        <div className="px-5 pt-4 border-t border-ink-800 text-[11px] text-ink-400">Ollama · your machine · your words</div>
       </nav>
       <main className="flex-1 overflow-y-auto" style={prefs?.ui.focusMode ? { opacity: 0.92 } : undefined}>
         {children}
